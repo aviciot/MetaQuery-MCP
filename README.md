@@ -198,12 +198,42 @@ docker-compose up --build
 }
 ```
 
-**Response includes:**
-- Full execution plan
-- All relevant table/index statistics
-- Optimizer parameters
-- Structured JSON for programmatic access
-- Ready-to-use prompt for LLM analysis
+**Response Structure:**
+```json
+{
+  "facts": {
+    "execution_plan": "Formatted EXPLAIN PLAN output",
+    "plan_details": [
+      {"step_id": 0, "operation": "SELECT STATEMENT", "cost": 100, "cardinality": 500, ...}
+    ],
+    "tables": [
+      {"owner": "SCHEMA", "table": "EMPLOYEES", "num_rows": 10000, "blocks": 150, ...}
+    ],
+    "indexes": [
+      {"owner": "SCHEMA", "index": "EMP_DEPT_IDX", "columns": ["DEPARTMENT_ID"], ...}
+    ],
+    "columns": [
+      {"owner": "SCHEMA", "table": "EMPLOYEES", "column": "DEPARTMENT_ID", "num_distinct": 15, ...}
+    ],
+    "constraints": [...],
+    "optimizer_params": {...},
+    "segment_sizes": {...},
+    "partition_diagnostics": {...}
+  },
+  "prompt": "Ready-to-use LLM analysis prompt with all context"
+}
+```
+
+**The `facts` object contains:**
+- **execution_plan**: Human-readable DBMS_XPLAN output
+- **plan_details**: Structured array of plan steps with costs, cardinality, predicates
+- **tables**: Row counts, blocks, partitioning info, last analyzed date
+- **indexes**: Index stats, clustering factor, distinct keys, usage in plan
+- **columns**: Cardinality, nulls, histograms for optimizer estimates
+- **constraints**: Primary keys, foreign keys, unique constraints
+- **optimizer_params**: Optimizer mode, index cost adjustments, parallel settings
+- **segment_sizes**: Actual disk space used by tables/indexes
+- **partition_diagnostics**: Partition pruning analysis (if applicable)
 
 ---
 
@@ -325,6 +355,100 @@ STRICT RULES:
 - Output MUST be valid JSON only (no commentary, no markdown).
 - Be concise. Avoid long explanations.
 - Base ALL conclusions ONLY on the provided MCP facts.
+
+
+
+
+Please analyze the SQL and give a clear, expert, human explanation covering:
+
+1. Summary
+
+What the query does and the main performance characteristics (cost, rows, access paths).
+
+2. Bottlenecks
+
+List only the important issues:
+
+Full scans
+
+Bad join methods
+
+Missing/misleading stats
+
+Missing or unused indexes
+
+Partition pruning failures
+
+Inefficient predicates or rewrite needs
+
+Parallel execution issues
+
+For each bottleneck, explain why it’s slow and show which plan step or statistic proves it.
+
+3. Recommendations
+
+Focus only on high-impact fixes:
+
+A. Indexes
+
+Which index to add/drop/modify (table + columns) and why it will help.
+
+B. Query Rewrite
+
+If the SQL pattern is causing a bad plan, explain:
+
+What to change
+
+Why
+
+What benefit it brings
+
+Only rewrite the full SQL if absolutely needed.
+
+C. Statistics
+
+Identify tables/indexes/columns with stale/missing stats and give the exact DBMS_STATS command to fix it.
+
+D. Partitioning
+
+Say whether partition pruning should work, whether it fails, and what to change.
+
+4. Performance Insights
+
+Summarize the main cost drivers:
+
+Estimated rows scanned
+
+Heavy operations
+
+Join method observations
+
+Whether parallelism helps or harms
+
+5. Expected Improvement
+
+Give a realistic estimate of expected performance gain for the recommended actions.
+
+6. Priority List
+
+Give a simple list of actions:
+
+Highest impact
+
+Medium
+
+Nice-to-have
+
+Include effort (low/medium/high) and expected impact.
+
+Important Instructions
+
+No JSON
+
+Base everything strictly on the provided plan/stats
+
+Focus on big-impact issues only (no micro-optimizations)
+
 
 
 ## � Author

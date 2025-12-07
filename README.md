@@ -231,6 +231,7 @@ server/
 
 ---
 
-## 📝 License
 
-Internal tool - Credorax/Shift4 use only
+## � Author
+
+Avi Cohen

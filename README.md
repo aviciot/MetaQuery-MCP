@@ -168,7 +168,32 @@ logging:
 
 **show_sql_queries**: When `true`, enables verbose SQL query logging (metadata queries executed by the collector). Use for deep debugging only.
 
-### 4. Analysis Modes
+### 4. Output Format Presets
+Control response size and content for different use cases:
+
+```yaml
+oracle_analysis:
+  output_preset: "compact"  # standard | compact | minimal
+```
+
+**Available Presets:**
+
+| Preset | Size | Content | Best For |
+|--------|------|---------|----------|
+| **standard** | ~40K tokens | • Text + JSON plan<br>• All tables/indexes<br>• All stats & constraints | Human review, comprehensive reports |
+| **compact** | ~20K tokens<br>**(recommended)** | • JSON plan only<br>• Only plan objects<br>• Essential stats | LLM analysis, cost optimization |
+| **minimal** | ~12K tokens | • JSON plan<br>• Basic table stats only<br>• No indexes/constraints | Quick feedback, simple queries |
+
+**What Gets Filtered:**
+- **compact**: Removes text plan, filters to tables/indexes actually in execution plan
+- **minimal**: Only plan + table row counts, excludes all detailed statistics
+
+**Collection vs Output:**
+- Data collection settings (metadata.table_statistics, etc.) control **what is collected** from Oracle
+- Output preset controls **what is returned** to the LLM
+- Use `standard` for collection + `compact` for output = collect everything, return only what's needed
+
+### 5. Analysis Modes (deprecated - use output_preset instead)
 Quick presets for common scenarios:
 - **quick**: Plan + basic stats only (fastest)
 - **standard**: All metadata + optimizer params (recommended)

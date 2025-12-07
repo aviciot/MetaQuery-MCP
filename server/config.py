@@ -20,6 +20,10 @@ class Config:
         self.show_tool_calls = log_config.get("show_tool_calls", True)
         self.show_sql_queries = log_config.get("show_sql_queries", False)
 
+        # Oracle analysis configuration
+        oracle_analysis = self._raw.get("oracle_analysis", {})
+        self.output_preset = oracle_analysis.get("output_preset", "standard").lower()
+
         # Database presets
         self.database_presets = self._raw.get("database_presets", {})
 

@@ -29,10 +29,41 @@ logging:
 # ============================================================================
 # ORACLE SQL ANALYSIS CONFIGURATION
 # ============================================================================
-# Controls what data is collected during SQL performance analysis
-# Disable features if you lack DB privileges or want faster analysis
-
 oracle_analysis:
+  
+  # ========================================
+  # OUTPUT FORMAT (Simple)
+  # ========================================
+  output_preset: "compact"  # standard | compact | minimal
+  
+  # Presets explained:
+  # 
+  # STANDARD - Full analysis for human review
+  #   • Text plan (DBMS_XPLAN) + JSON plan
+  #   • All tables/indexes (even if not in plan)
+  #   • All constraints and detailed stats
+  #   • Best for: Reports, comprehensive analysis
+  #   • Size: ~40K tokens
+  # 
+  # COMPACT - Optimized for LLM analysis (RECOMMENDED)
+  #   • JSON plan only (no duplicate text)
+  #   • Only tables/indexes in execution plan
+  #   • Essential stats only
+  #   • Best for: AI analysis, cost optimization
+  #   • Size: ~20K tokens
+  # 
+  # MINIMAL - Quick analysis
+  #   • JSON plan only
+  #   • Plan objects + table row counts only
+  #   • No detailed column stats or constraints
+  #   • Best for: Fast feedback, simple queries
+  #   • Size: ~12K tokens
+  
+  # ========================================
+  # DATA COLLECTION CONTROL (Advanced)
+  # ========================================
+  # Fine-tune what data to collect
+  # (Output preset controls what gets returned)
   
   # === CORE ANALYSIS (Cannot be disabled - fundamental) ===
   core:

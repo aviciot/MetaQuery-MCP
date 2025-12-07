@@ -530,39 +530,44 @@ def get_segment_sizes(cur, tables):
     if not tables:
         return []
     
-    where, binds = build_clause(tables, alias='s')
+    # Build OR conditions for matching tables
+    # DBA_SEGMENTS uses SEGMENT_NAME (not TABLE_NAME) and OWNER
+    owner_segment_pairs = []
+    for owner, table in tables:
+        owner_segment_pairs.append(f"(owner = '{owner}' AND segment_name = '{table}')")
+    
+    where_clause = " OR ".join(owner_segment_pairs)
     
     # Try DBA_SEGMENTS first, fallback to USER_SEGMENTS
     queries = [
         # DBA_SEGMENTS (requires DBA privileges)
         f"""
-            SELECT s.owner, s.segment_name, s.segment_type,
-                   s.bytes, s.blocks, s.extents,
-                   ROUND(s.bytes/1024/1024, 2) as size_mb,
-                   ROUND(s.bytes/1024/1024/1024, 2) as size_gb
-            FROM dba_segments s
-            WHERE s.segment_type IN ('TABLE', 'TABLE PARTITION', 'INDEX', 'INDEX PARTITION')
-              AND ({where})
-            ORDER BY s.owner, s.segment_name
+            SELECT owner, segment_name, segment_type,
+                   bytes, blocks, extents,
+                   ROUND(bytes/1024/1024, 2) as size_mb,
+                   ROUND(bytes/1024/1024/1024, 2) as size_gb
+            FROM dba_segments
+            WHERE segment_type IN ('TABLE', 'TABLE PARTITION', 'INDEX', 'INDEX PARTITION')
+              AND ({where_clause})
+            ORDER BY owner, segment_name
         """,
-        # USER_SEGMENTS (fallback)
+        # USER_SEGMENTS (fallback - only current user's segments)
         f"""
-            SELECT s.owner, s.segment_name, s.segment_type,
-                   s.bytes, s.blocks, s.extents,
-                   ROUND(s.bytes/1024/1024, 2) as size_mb,
-                   ROUND(s.bytes/1024/1024/1024, 2) as size_gb
-            FROM user_segments s
-            WHERE s.segment_type IN ('TABLE', 'TABLE PARTITION', 'INDEX', 'INDEX PARTITION')
-            ORDER BY s.owner, s.segment_name
+            SELECT USER as owner, segment_name, segment_type,
+                   bytes, blocks, extents,
+                   ROUND(bytes/1024/1024, 2) as size_mb,
+                   ROUND(bytes/1024/1024/1024, 2) as size_gb
+            FROM user_segments
+            WHERE segment_type IN ('TABLE', 'TABLE PARTITION', 'INDEX', 'INDEX PARTITION')
+            ORDER BY segment_name
         """
     ]
-    
     
     for i, q in enumerate(queries):
         try:
             view_name = "DBA_SEGMENTS" if i == 0 else "USER_SEGMENTS"
             dbg(f"Trying {view_name}...")
-            cur.execute(q, binds if i == 0 else {})
+            cur.execute(q)  # No binds needed - SQL is built directly
             cols = [c[0].lower() for c in cur.description]
             rows = [dict(zip(cols, r)) for r in cur.fetchall()]
             dbg(f"Segment size rows from {view_name}:", len(rows))
@@ -691,62 +696,103 @@ def run_full_oracle_analysis(cur, sql_text: str):
     except:
         pass
 
+    # Build full facts dictionary
+    full_facts = {
+        "sql_text": sql,
+        "execution_plan": xplan,
+        "plan_details": plan_details,
+        "table_stats": table_stats,
+        "index_stats": index_stats,
+        "index_columns": index_cols,
+        "partition_tables": part_tables,
+        "partition_keys": part_keys,
+        "column_stats": col_stats,
+        "constraints": constraints,
+        "optimizer_parameters": optimizer_params,
+        "segment_sizes": segment_sizes,
+        "partition_diagnostics": partition_diagnostics,
+        "summary": {
+            "tables": len(tables),
+            "indexes": len(index_stats),
+            "columns": len(col_stats),
+            "constraints": len(constraints),
+            "partitioned_tables": len(part_tables),
+            "partition_issues": len(partition_diagnostics)
+        }
+    }
+    
+    # Apply output filtering based on preset
+    from config import config
+    plan_tables_set = set(plan_objs["tables"])
+    plan_indexes_set = set(plan_objs["indexes"])
+    filtered_facts = apply_output_preset(full_facts, config.output_preset, plan_tables_set, plan_indexes_set)
+    
     return {
-        "facts": {
-            "sql_text": sql,
-            "exec_plan": xplan,
-            "plan_details": plan_details,
-            "table_stats": table_stats,
-            "index_stats": index_stats,
-            "index_columns": index_cols,
-            "partition_tables": part_tables,
-            "partition_keys": part_keys,
-            "column_stats": col_stats,
-            "constraints": constraints,
-            "optimizer_parameters": optimizer_params,
-            "segment_sizes": segment_sizes,
-            "partition_diagnostics": partition_diagnostics,
-            "summary": {
-                "tables": len(tables),
-                "indexes": len(index_stats),
-                "columns": len(col_stats),
-                "constraints": len(constraints),
-                "partitioned_tables": len(part_tables),
-                "partition_issues": len(partition_diagnostics)
-            }
-        },
+        "facts": filtered_facts,
         "prompt":
             f"Oracle analysis ready. SQL length={len(sql)}, tables={len(tables)}, "
             f"constraints={len(constraints)}, partition_issues={len(partition_diagnostics)}."
     }
 
-    # Cleanup
-    try:
-        cur.execute("DELETE FROM plan_table WHERE statement_id = :sid", sid=stmt_id)
-        cur.connection.commit()
-    except:
-        pass
 
-    return {
-        "facts": {
-            "sql_text": sql,
-            "exec_plan": xplan,
-            "plan_details": plan_details,
-            "table_stats": table_stats,
-            "index_stats": index_stats,
-            "index_columns": index_cols,
-            "partition_tables": part_tables,
-            "partition_keys": part_keys,
-            "column_stats": col_stats,
-            "constraints": constraints,
-            "optimizer_parameters": optimizer_params,
-            "summary": {
-                "tables": len(tables),
-                "indexes": len(index_stats),
-                "columns": len(col_stats),
-                "constraints": len(constraints)
-            }
-        },
-        "prompt":
-            f"Oracle analysis ready. SQL length={len(sql)}, tables={len(tables)}, constraints={len(constraints)}."
+def apply_output_preset(facts, preset, plan_tables, plan_indexes):
+    """
+    Filter facts based on output preset to optimize for different use cases.
+    
+    Args:
+        facts: Full facts dictionary
+        preset: "standard" | "compact" | "minimal"
+        plan_tables: Set of (owner, table) tuples actually in the execution plan
+        plan_indexes: Set of (owner, index) tuples actually in the execution plan
+    
+    Returns:
+        Filtered facts dictionary
+    """
+    if preset == "standard":
+        # Return everything - no filtering
+        return facts
+    
+    # For compact and minimal, create a filtered copy
+    filtered = {
+        "sql_text": facts["sql_text"],
+        "plan_details": facts["plan_details"],  # Always include structured plan
+        "summary": facts["summary"]
     }
+    
+    if preset == "compact":
+        # Compact: Filter to plan objects, exclude execution_plan text
+        filtered["table_stats"] = [
+            t for t in facts["table_stats"]
+            if (t.get("owner"), t.get("table_name")) in plan_tables
+        ]
+        filtered["index_stats"] = [
+            i for i in facts["index_stats"]
+            if (i.get("owner"), i.get("index_name")) in plan_indexes
+        ]
+        filtered["index_columns"] = [
+            ic for ic in facts["index_columns"]
+            if (ic.get("table_owner"), ic.get("index_name")) in plan_indexes
+        ]
+        filtered["column_stats"] = facts["column_stats"]  # Keep all - needed for cardinality
+        filtered["constraints"] = facts["constraints"]
+        filtered["optimizer_parameters"] = facts["optimizer_parameters"]
+        filtered["segment_sizes"] = [
+            s for s in facts["segment_sizes"]
+            if (s.get("owner"), s.get("segment_name")) in plan_tables or 
+               (s.get("owner"), s.get("segment_name")) in plan_indexes
+        ]
+        filtered["partition_tables"] = facts["partition_tables"]
+        filtered["partition_keys"] = facts["partition_keys"]
+        filtered["partition_diagnostics"] = facts["partition_diagnostics"]
+        
+    elif preset == "minimal":
+        # Minimal: Only plan + basic table stats
+        filtered["table_stats"] = [
+            {k: v for k, v in t.items() if k in ["owner", "table_name", "num_rows", "blocks"]}
+            for t in facts["table_stats"]
+            if (t.get("owner"), t.get("table_name")) in plan_tables
+        ]
+        # Exclude: indexes, columns, constraints, segments, partitions
+        
+    return filtered
+

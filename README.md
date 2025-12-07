@@ -1,52 +1,58 @@
-# Oracle Performance MCP Server# Oracle Performance MCP Server
+# Oracle Performance MCP Server
 
+**Read-only SQL performance analysis tool** that provides LLMs with comprehensive Oracle database context for query tuning recommendations.
 
+## 🎯 What It Does
 
-**Read-only SQL performance analysis tool** that provides LLMs with comprehensive Oracle database context for query tuning recommendations.This MCP exposes a single high-value tool:
-
-
-
-## 🎯 What It Does### `analyze_full_sql_context(db_name, sql_text)`
-
-
-
-This MCP server provides tools to analyze Oracle SQL queries **without executing them**. It collects execution plans, statistics, and metadata to help LLMs provide expert-level performance tuning advice.It connects to an internal Oracle database using **safe presets** defined in
-
-`config/settings.yaml`, collects full performance metadata, and returns:
+This MCP server provides tools to analyze Oracle SQL queries **without executing them**. It collects execution plans, statistics, and metadata to help LLMs provide expert-level performance tuning advice. It connects to internal Oracle databases using **safe presets** defined in `config/settings.yaml`.
 
 ### Available Tools
 
-- Execution Plan (DBMS_XPLAN)
+#### 1. `list_available_databases()`
+Lists all configured database endpoints and their connection status:
+- Tests connectivity to each configured database
+- Returns database version and instance information
+- Shows which databases are accessible
 
-#### 1. `analyze_full_sql_context(db_name, sql_text)`- Plan steps
+**Returns:**
+```json
+{
+  "databases": [
+    {
+      "name": "transformer_master",
+      "status": "connected",
+      "version": "Oracle Database 19c Enterprise Edition",
+      "instance": "PROD01"
+    },
+    {
+      "name": "backup_db",
+      "status": "error",
+      "error": "ORA-12154: TNS:could not resolve the connect identifier"
+    }
+  ]
+}
+```
 
-Comprehensive analysis of a SQL query including:- Table statistics
+#### 2. `analyze_full_sql_context(db_name, sql_text)`
+Comprehensive analysis of a SQL query including:
 
-- ✅ Execution Plan (EXPLAIN PLAN via DBMS_XPLAN)- Index statistics
-
-- ✅ Plan details (costs, cardinality, predicates, partition info)- Index columns
-
-- ✅ Table statistics (row counts, blocks, last analyzed date)- Partition metadata
-
-- ✅ Index statistics (clustering factor, distinct keys, status)- Column histograms / distincts
-
-- ✅ Index column mappings- SQL-parsed objects
-
-- ✅ Partition metadata & keys- A ready-to-send **LLM tuning prompt**
-
-- ✅ Column statistics (distinct values, nulls, histograms)- Structured **facts JSON**
-
+- ✅ Execution Plan (EXPLAIN PLAN via DBMS_XPLAN)
+- ✅ Plan details (costs, cardinality, predicates, partition info)
+- ✅ Table statistics (row counts, blocks, last analyzed date)
+- ✅ Index statistics (clustering factor, distinct keys, status)
+- ✅ Index column mappings
+- ✅ Partition metadata & keys
+- ✅ Column statistics (distinct values, nulls, histograms)
 - ✅ Constraints (PK, FK, unique)
-
-- ✅ Optimizer parameters (mode, index cost adj, etc.)## 🚀 Run (development + hot reload)
-
+- ✅ Optimizer parameters (mode, index cost adj, etc.)
 - ✅ Segment sizes (actual disk space usage)
+- ✅ Partition pruning diagnostics
 
-- ✅ Partition pruning diagnostics```bash
+**Returns:**
+- Structured **facts JSON** with all collected metadata
+- A ready-to-send **LLM tuning prompt**
 
-docker-compose up --build
-
-#### 2. `compare_sql_plans(db_name, original_sql, improved_sql)` *(coming soon)*
+#### 3. `compare_sql_plans(db_name, original_sql, improved_sql)` *(coming soon)*
 Fast comparison of two SQL queries showing:
 - Side-by-side execution plans
 - Cost differences & improvements

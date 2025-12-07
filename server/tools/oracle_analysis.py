@@ -69,8 +69,67 @@ def analyze_full_sql_context(db_name: str, sql_text: str) -> dict:
         }
     finally:
         try:
-            cur.close()
-            conn.close()
+            if 'conn' in locals():
+                conn.close()
         except:
             pass
+
+
+@mcp.tool(
+    name="list_available_databases",
+    description=(
+        "Lists all configured Oracle database endpoints with their connection status. "
+        "Shows which databases are available for SQL analysis."
+    ),
+)
+def list_available_databases() -> dict:
+    """
+    Returns list of configured database presets with accessibility status.
+    Tests connection to each database to verify availability.
+    """
+    logger.info("🔍 list_available_databases() called")
+    
+    databases = []
+    
+    for db_name, db_config in config.database_presets.items():
+        db_info = {
+            "name": db_name,
+            "user": db_config.get("user", ""),
+            "dsn": db_config.get("dsn", ""),
+            "status": "unknown",
+            "message": ""
+        }
         
+        # Test connection
+        try:
+            conn = oracle_connector.connect(db_name)
+            cur = conn.cursor()
+            
+            # Get database version and name
+            cur.execute("SELECT banner FROM v$version WHERE ROWNUM = 1")
+            version = cur.fetchone()[0] if cur.rowcount > 0 else "Unknown"
+            
+            cur.execute("SELECT name FROM v$database")
+            db_instance = cur.fetchone()[0] if cur.rowcount > 0 else "Unknown"
+            
+            db_info["status"] = "accessible"
+            db_info["message"] = f"Connected successfully"
+            db_info["version"] = version
+            db_info["instance"] = db_instance
+            
+            conn.close()
+            logger.info(f"✅ {db_name}: accessible")
+            
+        except Exception as e:
+            db_info["status"] = "error"
+            db_info["message"] = str(e)
+            logger.warning(f"❌ {db_name}: {e}")
+        
+        databases.append(db_info)
+    
+    return {
+        "databases": databases,
+        "total": len(databases),
+        "accessible": sum(1 for db in databases if db["status"] == "accessible"),
+        "errors": sum(1 for db in databases if db["status"] == "error")
+    }

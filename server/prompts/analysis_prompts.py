@@ -64,3 +64,18 @@ Focus ONLY on:
 Ignore: index problems, join problems (unless related to partitions)
 
 Explain how to improve partition pruning."""
+
+# LEGACY PROMPT - KEEPING FOR BACKWARD COMPATIBILITY
+@mcp.prompt()
+def oracle_query_tuning_prompt(query: str, execution_plan: str = "", error_message: str = ""):
+    """Legacy prompt - use oracle_full_analysis instead"""
+    plan = execution_plan or "No execution plan provided"
+    err = error_message or "No errors"
+    
+    return f"""Analyze this Oracle query for performance issues.
+
+Query: {query}
+Execution Plan: {plan}
+Error: {err}
+
+Provide specific optimization recommendations."""

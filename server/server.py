@@ -14,6 +14,7 @@ import uvicorn
 
 from config import config
 from mcp_app import mcp
+import db_connector
 from db_connector import oracle_connector
 
 
@@ -106,9 +107,52 @@ else:
 # DB Connectivity Test (Init Step)
 # -------------------------------------------------------------
 logger.info("🔍 Performing initial DB connectivity tests...")
+logger.info("")
 
-for preset_name in config.database_presets.keys():
-    oracle_connector.test_connection(preset_name)
+# Group databases by type
+oracle_dbs = []
+mysql_dbs = []
+other_dbs = []
+
+for preset_name, preset_config in config.database_presets.items():
+    db_type = preset_config.get("type", "oracle")
+    if db_type == "oracle":
+        oracle_dbs.append(preset_name)
+    elif db_type == "mysql":
+        mysql_dbs.append(preset_name)
+    else:
+        other_dbs.append(preset_name)
+
+# Test Oracle databases
+if oracle_dbs:
+    logger.info(f"📊 ORACLE DATABASES ({len(oracle_dbs)}):")
+    for db_name in oracle_dbs:
+        success = db_connector.test_connection(db_name)
+        if not success:
+            logger.warning(f"   ⚠️  {db_name}: Connection failed")
+    logger.info("")
+
+# Test MySQL databases
+if mysql_dbs:
+    logger.info(f"📊 MYSQL DATABASES ({len(mysql_dbs)}):")
+    for db_name in mysql_dbs:
+        success = db_connector.test_connection(db_name)
+        if not success:
+            logger.warning(f"   ⚠️  {db_name}: Connection failed")
+    logger.info("")
+
+# Test other database types
+if other_dbs:
+    logger.info(f"📊 OTHER DATABASES ({len(other_dbs)}):")
+    for db_name in other_dbs:
+        success = db_connector.test_connection(db_name)
+        if not success:
+            logger.warning(f"   ⚠️  {db_name}: Connection failed")
+    logger.info("")
+
+total_dbs = len(oracle_dbs) + len(mysql_dbs) + len(other_dbs)
+logger.info(f"✅ Database connectivity check complete! ({total_dbs} databases tested)")
+logger.info("")
 
 
 print(f"🌐 Listening on port: {config.server_port}")

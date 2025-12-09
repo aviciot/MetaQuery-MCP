@@ -1,5 +1,6 @@
 fastmcp
 oracledb
+mysql-connector-python
 pyyaml
 starlette
 uvicorn

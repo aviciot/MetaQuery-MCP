@@ -1,16 +1,52 @@
-# Oracle Performance MCP Server 🚀
+# Oracle & MySQL Performance MCP Server 🚀
 
 **AI-powered SQL performance analysis with historical tracking and intelligent security**
 
 ## 🎯 What It Does
 
-This MCP server provides advanced tools to analyze Oracle SQL queries **without executing them**. It collects execution plans, statistics, and metadata to help LLMs provide expert-level performance tuning advice with:
+This MCP server provides advanced tools to analyze **Oracle** and **MySQL** SQL queries **without executing them**. It collects execution plans, statistics, and metadata to help LLMs provide expert-level performance tuning advice with:
 
 - 🔍 **Smart SQL Validation** - Catches dangerous operations before execution
 - 📊 **Historical Query Tracking** - Detects performance regressions over time
-- 🎨 **Visual Execution Plans** - ASCII tree visualization with warning emojis
-- 🤖 **What-If Analysis** - LLM-powered growth prediction and scaling insights
+- 🎨 **Visual Execution Plans** - ASCII tree visualization with warning emojis (Oracle)
+- 🤖 **What-If Analysis** - LLM-powered growth prediction and scaling insights (Oracle)
 - 🔐 **Multi-Layer Security** - Prevents dangerous operations at multiple levels
+- 🐬 **MySQL Support** - Native MySQL 8.0+ analysis with performance_schema integration
+
+### Supported Databases
+
+#### Oracle Database
+- **Versions**: 11g, 12c, 18c, 19c, 21c
+- **Analysis**: DBMS_XPLAN execution plans, AWR/ASH integration, partition analysis
+- **Features**: Visual plans, what-if growth analysis, historical tracking
+
+#### MySQL
+- **Versions**: MySQL 5.7+, MySQL 8.0+ (recommended)
+- **Analysis**: EXPLAIN FORMAT=JSON, performance_schema statistics, index usage tracking
+- **Features**: Index usage patterns, duplicate index detection, historical tracking
+
+### How the LLM Knows Which Tool to Use
+
+**Database Type Detection:**
+The LLM automatically selects the correct tool based on:
+
+1. **Tool Descriptions** - Each tool clearly states `[ORACLE ONLY]` or `[MYSQL ONLY]` in its description
+2. **Database Name Convention** - Database names in `settings.yaml` should include db type hint:
+   - Oracle: `oracle_prod`, `way4_docker7`, `transformer_master`
+   - MySQL: `mysql_devdb03_avi`, `mysql_production`
+3. **LLM Context** - When user says "analyze this MySQL query" or "Oracle performance", the LLM uses that context
+4. **Error Handling** - If wrong tool is used, clear error message guides LLM to correct tool
+
+**Tool Mapping:**
+```
+Oracle Analysis:
+  - analyze_oracle_query()          → MySQL equivalent: analyze_mysql_query()
+  - compare_oracle_query_plans()    → MySQL equivalent: compare_mysql_query_plans()
+  - Oracle-specific prompts         → MySQL uses same analysis approach
+
+Database Discovery:
+  - list_available_databases()      → Returns all configured databases with type detection
+```
 
 ### Available Tools
 
@@ -96,21 +132,164 @@ Side-by-side comparison of two SQL queries showing:
 
 ---
 
+## 🐬 MySQL Analysis Tools
+
+### MySQL-Specific Tools
+
+#### 1. `analyze_mysql_query(db_name, sql_text)` 🐬
+Comprehensive MySQL query performance analysis with native MySQL 8.0+ features:
+
+**What MySQL Analysis Covers:**
+
+**Core Execution Plan:**
+- ✅ **EXPLAIN FORMAT=JSON** - Native MySQL JSON execution plan
+- ✅ **Plan Details** - Access methods, join types, cost estimates
+- ✅ **Query Block Analysis** - Handles ordering_operation, grouping_operation wrappers
+- ✅ **Cost Estimation** - MySQL optimizer cost calculations
+- ✅ **Row Estimates** - Cardinality predictions per operation
+
+**Table Statistics:**
+- ✅ **information_schema.TABLES** - Row counts, table sizes, storage engine
+- ✅ **Data Length** - Actual disk space usage
+- ✅ **Index Length** - Index storage overhead
+- ✅ **Auto Increment** - Current sequence values
+- ✅ **Collation** - Character set and collation info
+
+**Index Statistics:**
+- ✅ **information_schema.STATISTICS** - Index structure and columns
+- ✅ **Cardinality** - Unique value estimates per index
+- ✅ **Index Type** - BTREE, HASH, FULLTEXT
+- ✅ **Column Order** - Multi-column index sequence
+
+**🆕 Advanced MySQL Features:**
+
+**Index Usage Tracking (performance_schema):**
+- 📊 **Real Usage Patterns** - Queries `performance_schema.table_io_waits_summary_by_index_usage`
+- 📊 **Read/Write Counts** - `count_read`, `count_write` per index
+- 📊 **Latency Metrics** - Total time spent using each index
+- 📊 **Usage Classification**:
+  - ✅ HIGH usage (> 10,000 operations)
+  - ⚠️ MODERATE usage (1,000 - 10,000)
+  - ⚠️ LOW usage (1 - 1,000)
+  - ❌ UNUSED (0 operations) - **Candidates for removal**
+
+**Duplicate Index Detection:**
+- 🔍 **Redundant Indexes** - Finds indexes on identical column sets
+- 🔍 **Same Order Detection** - Matches column sequence exactly
+- 🔍 **Storage Waste** - Highlights duplicate index overhead
+- 💡 **Consolidation Suggestions** - Recommends which duplicates to drop
+
+**Historical Query Tracking:**
+- 📊 **Query Fingerprinting** - Same MD5 normalization as Oracle
+- 📊 **Performance Trends** - Detects cost increases over time
+- 📊 **Plan Changes** - Alerts when optimizer switches strategies
+- 📊 **Data Growth** - Tracks table size evolution
+
+**MySQL-Specific Optimizations:**
+- ⚡ **Index Skip Scan** - MySQL 8.0+ loose index scan detection
+- ⚡ **Covering Indexes** - Identifies queries satisfied by index only
+- ⚡ **Join Buffer** - Detects block nested loop optimizations
+- ⚡ **Filesort Detection** - Warns about temporary sort operations
+
+**Returns:**
+```json
+{
+  "facts": {
+    "execution_plan_json": {...},
+    "plan_details": [...],
+    "tables": [{
+      "table_schema": "mydb",
+      "table_name": "orders",
+      "engine": "InnoDB",
+      "table_rows": 15000,
+      "data_length": 2621440,
+      "index_length": 524288
+    }],
+    "indexes": [{
+      "table": "orders",
+      "index_name": "idx_customer",
+      "columns": ["customer_id", "order_date"],
+      "cardinality": 12500,
+      "index_type": "BTREE"
+    }],
+    "index_usage": [{
+      "index_name": "idx_customer",
+      "count_read": 15823,
+      "count_write": 450,
+      "usage_status": "HIGH"
+    }],
+    "duplicate_indexes": [{
+      "table": "orders",
+      "columns": ["customer_id"],
+      "indexes": ["idx_customer_old", "idx_customer_new"],
+      "recommendation": "Consider dropping idx_customer_old"
+    }],
+    "historical_context": "Performance stable - plan unchanged"
+  }
+}
+```
+
+#### 2. `compare_mysql_query_plans(db_name, original_sql, optimized_sql)` 🐬
+Side-by-side comparison of two MySQL SELECT queries:
+
+**Comparison Features:**
+- 📊 Cost difference & percentage improvement
+- 📊 Access method changes (table scan → index scan)
+- 📊 Row estimate differences
+- 📊 Plan structure comparison
+- 📊 Index usage comparison
+
+**Security:** Both queries validated with same multi-layer protection as Oracle.
+
+**Returns:**
+```json
+{
+  "comparison": {
+    "original_plan": {...},
+    "optimized_plan": {...},
+    "cost_improvement": "25% faster",
+    "row_reduction": "80% fewer rows scanned",
+    "recommendations": [
+      "Optimized query uses index instead of full table scan",
+      "Reduced estimated rows from 15,000 to 3,000"
+    ]
+  }
+}
+```
+
+---
+
 ## 🆕 What's New in This Version
 
+### 🐬 MySQL Database Support
+**Full MySQL 8.0+ analysis capabilities:**
+
+- ✅ **EXPLAIN FORMAT=JSON** - Native MySQL plan parser
+- ✅ **performance_schema Integration** - Real index usage tracking
+- ✅ **Duplicate Index Detection** - Find redundant indexes
+- ✅ **MySQL-Specific Optimizations** - Index skip scan, covering indexes
+- ✅ **Same Security Model** - Multi-layer validation like Oracle
+- ✅ **Historical Tracking** - Shared fingerprinting system with Oracle
+
 ### 🔐 Multi-Layer Security System
-**Three levels of defense to prevent dangerous operations:**
+**Three levels of defense to prevent dangerous operations (Oracle & MySQL):**
 
 1. **LLM Prompt Warnings** - Tool descriptions include security warnings visible to AI
 2. **Tool-Level Validation** - Pre-validates SQL before expensive metadata collection
-3. **Collector Validation** - Deep validation with keyword blocking before EXPLAIN PLAN
+3. **Collector Validation** - Deep validation with keyword blocking before EXPLAIN PLAN/EXPLAIN
 
-**Blocked Operations:**
-- INSERT, UPDATE, DELETE, MERGE, TRUNCATE
+**Blocked Operations (Both Oracle & MySQL):**
+- INSERT, UPDATE, DELETE, REPLACE, MERGE, TRUNCATE
 - CREATE, DROP, ALTER (DDL operations)
 - GRANT, REVOKE (permission changes)
-- SELECT INTO (can create tables)
-- Excessive subquery nesting (DoS prevention)
+- COMMIT, ROLLBACK, SAVEPOINT (transaction control)
+- SHUTDOWN, STARTUP, KILL (system operations)
+- EXECUTE, CALL (procedure execution)
+- SELECT INTO (Oracle - can create tables)
+- INTO OUTFILE/DUMPFILE (MySQL - data exfiltration)
+- LOCK/UNLOCK TABLES (MySQL - table locking)
+- HANDLER, LOAD, IMPORT (MySQL - data loading)
+- Excessive subquery nesting (DoS prevention, max 10 levels)
 - Query length limits (100KB max)
 
 **Validation Response:**
@@ -269,6 +448,77 @@ GRANT SELECT ON V$SQL TO <your_user>;
 - No additional Oracle privileges needed
 - Uses local SQLite database for storage
 - Automatically creates `server/data/query_history.db` on first run
+- Persists across container restarts via Docker volume mount
+
+---
+
+## 🐬 Required MySQL Permissions
+
+### Minimum Required (Core Functionality):
+```sql
+-- Read access to information_schema (usually granted by default)
+GRANT SELECT ON information_schema.TABLES TO '<your_user>'@'%';
+GRANT SELECT ON information_schema.STATISTICS TO '<your_user>'@'%';
+GRANT SELECT ON information_schema.COLUMNS TO '<your_user>'@'%';
+
+-- Access to target database(s)
+GRANT SELECT ON <your_database>.* TO '<your_user>'@'%';
+```
+
+### Recommended (Enhanced Features - performance_schema):
+```sql
+-- Index usage statistics (MySQL 5.7+)
+GRANT SELECT ON performance_schema.table_io_waits_summary_by_index_usage TO '<your_user>'@'%';
+
+-- Additional performance insights
+GRANT SELECT ON performance_schema.events_statements_summary_by_digest TO '<your_user>'@'%';
+```
+
+### MySQL Views Accessed by Feature:
+
+| Feature | MySQL Views/Tables | Required | Fallback Behavior |
+|---------|-------------------|----------|-------------------|
+| **Core Analysis** |
+| Execution Plan | `EXPLAIN` permission on target database | ✅ Yes | ❌ Analysis fails without it |
+| Table Stats | `information_schema.TABLES` | ✅ Yes | ❌ Required for basic analysis |
+| Index Stats | `information_schema.STATISTICS` | ✅ Yes | ❌ Required for index analysis |
+| **Enhanced Features** |
+| Index Usage | `performance_schema.table_io_waits_summary_by_index_usage` | ⚠️ Recommended | ⚠️ Skip if unavailable |
+| Query Statistics | `performance_schema.events_statements_summary_by_digest` | ⚠️ Optional | ⚠️ Skip if unavailable |
+| Duplicate Detection | `information_schema.STATISTICS` | ✅ Yes | Uses same data as index stats |
+| **Historical Tracking** |
+| Query History | SQLite local file (`server/data/query_history.db`) | 🆕 Automatic | Shared with Oracle, created on first run |
+
+**Privilege Levels:**
+
+- **Minimum (Core)**: `SELECT` on `information_schema` + target databases → Basic analysis works
+- **Standard (Recommended)**: Above + `performance_schema` access → Enhanced analysis with real usage patterns
+- **Full (Ideal)**: Above + `SHOW DATABASES` privilege → Can discover all accessible databases
+
+**Performance Schema Setup:**
+```sql
+-- Enable performance_schema (add to my.cnf and restart)
+[mysqld]
+performance_schema = ON
+
+-- Or check if already enabled
+SELECT @@performance_schema;
+
+-- Enable table I/O monitoring (usually enabled by default in MySQL 8.0+)
+UPDATE performance_schema.setup_instruments 
+SET ENABLED = 'YES', TIMED = 'YES' 
+WHERE NAME LIKE 'wait/io/table/%';
+
+UPDATE performance_schema.setup_consumers 
+SET ENABLED = 'YES' 
+WHERE NAME LIKE '%table%';
+```
+
+**Historical Tracking:**
+- Same SQLite database as Oracle (`server/data/query_history.db`)
+- No additional MySQL privileges needed
+- Fingerprinting works identically for both database types
+- Cross-database comparison possible
 - Persists across container restarts via Docker volume mount
 
 ---
@@ -522,7 +772,9 @@ WHERE ms.contract_id = 12313
 
 ## 🧪 Test Prompts for MCP Inspector
 
-### Prompt 1: Basic Analysis
+### Oracle Database Tests
+
+### Prompt 1: Basic Oracle Analysis
 ```
 Analyze this query on way4_docker7:
 
@@ -535,7 +787,7 @@ WHERE ms.contract_id = 12313
 Identify any performance bottlenecks and suggest improvements.
 ```
 
-### Prompt 2: Historical Tracking Test
+### Prompt 2: Oracle Historical Tracking Test
 ```
 Run the same query twice to test historical tracking:
 
@@ -544,7 +796,7 @@ First run: SELECT owner, table_name, num_rows FROM all_tables WHERE owner = 'OWS
 Wait a moment, then run again to see historical comparison.
 ```
 
-### Prompt 3: What-If Growth Analysis
+### Prompt 3: Oracle What-If Growth Analysis
 ```
 Using the oracle_what_if_growth prompt, analyze:
 
@@ -553,7 +805,7 @@ What happens to performance if the merchant_statement table grows from 15K to 15
 Use this query: SELECT * FROM ows.merchant_statement WHERE contract_id = 12313
 ```
 
-### Prompt 4: Index Recommendation
+### Prompt 4: Oracle Index Recommendation
 ```
 Using oracle_index_analysis prompt:
 
@@ -565,7 +817,7 @@ WHERE ms.ready_date BETWEEN SYSDATE - 90 AND SYSDATE
   AND ms.amount > 1000
 ```
 
-### Prompt 5: Query Rewrite
+### Prompt 5: Oracle Query Rewrite
 ```
 Using oracle_rewrite_query prompt:
 
@@ -576,7 +828,7 @@ WHERE ms.contract_id IN (SELECT contract_id FROM ows.contracts WHERE status = 'A
   AND ms.ready_date > SYSDATE - 365
 ```
 
-### Prompt 6: Security Test
+### Prompt 6: Oracle Security Test
 ```
 Try to analyze this query (should be blocked):
 
@@ -585,6 +837,102 @@ SET amount = 0
 WHERE contract_id = 12313
 
 Expected: Security validation blocks the query with clear error message.
+```
+
+---
+
+### MySQL Database Tests
+
+### Prompt 7: Basic MySQL Analysis
+```
+Analyze this MySQL query on mysql_devdb03_avi:
+
+SELECT * 
+FROM avi.customer_order
+WHERE amount > 20
+  AND status = 'pending'
+ORDER BY order_date DESC
+LIMIT 10;
+
+Show me the execution plan and any performance issues.
+```
+
+### Prompt 8: MySQL Index Usage Analysis
+```
+Analyze this query and check which indexes are actually being used:
+
+SELECT co.order_id, co.customer_id, co.amount, co.status
+FROM avi.customer_order co
+WHERE co.amount > 100
+  AND co.order_date > DATE_SUB(NOW(), INTERVAL 30 DAY)
+ORDER BY co.status, co.order_date;
+
+Include index usage statistics from performance_schema.
+```
+
+### Prompt 9: MySQL Duplicate Index Detection
+```
+Check the customer_order table for any duplicate or redundant indexes.
+
+Analyze query: SELECT * FROM avi.customer_order WHERE customer_id = 123
+
+Tell me if there are unused indexes that could be dropped.
+```
+
+### Prompt 10: MySQL Historical Tracking
+```
+Run this query twice to test MySQL historical tracking:
+
+First run: 
+SELECT * FROM avi.customer_order
+WHERE amount > 20
+ORDER BY status, order_date
+LIMIT 5;
+
+Then run the same query again and show me the historical comparison.
+```
+
+### Prompt 11: MySQL Query Comparison
+```
+Compare these two MySQL queries and tell me which is better:
+
+Original:
+SELECT * FROM avi.customer_order
+WHERE customer_id IN (SELECT id FROM avi.customers WHERE status = 'active')
+
+Optimized:
+SELECT co.* FROM avi.customer_order co
+INNER JOIN avi.customers c ON co.customer_id = c.id
+WHERE c.status = 'active'
+
+Use compare_mysql_query_plans to show the performance difference.
+```
+
+### Prompt 12: MySQL Security Test
+```
+Try to analyze this MySQL query (should be blocked):
+
+DELETE FROM avi.customer_order WHERE amount = 0;
+
+Expected: Security validation blocks the query immediately with error message.
+```
+
+### Prompt 13: MySQL WITH Clause (CTE)
+```
+Analyze this MySQL 8.0 CTE query:
+
+WITH high_value_orders AS (
+  SELECT customer_id, SUM(amount) as total
+  FROM avi.customer_order
+  WHERE order_date > DATE_SUB(NOW(), INTERVAL 90 DAY)
+  GROUP BY customer_id
+  HAVING SUM(amount) > 1000
+)
+SELECT * FROM high_value_orders
+ORDER BY total DESC
+LIMIT 10;
+
+Check if indexes are being used efficiently in the CTE.
 ```
 
 ---

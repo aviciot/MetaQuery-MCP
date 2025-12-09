@@ -1,19 +1,38 @@
 database_presets:
 
+  # ============================================================================
+  # ORACLE DATABASES
+  # ============================================================================
   transformer_master:
+    type: oracle
     user: stg
     password: stg90
     dsn: stgrndm-np-01.qa.bos.credorax.com:1521/stgdev
 
   way4_docker8:
+    type: oracle
     user: inform
     password: Term1k50
     dsn: docker-lin07.dev1.bos.credorax.com:15208/orclpdb1
 
   way4_docker7:
+    type: oracle
     user: inform
     password: Term1k50
     dsn: docker-lin07.dev1.bos.credorax.com:15207/orclpdb1
+
+  # ============================================================================
+  # MYSQL DATABASES
+  # ============================================================================
+  mysql_devdb03_avi:
+    type: mysql
+    host: devdb03.dev.bos.credorax.com
+    port: 3306
+    user: inform
+    password: inform
+    database: avi
+    version: "8.0.40-commercial"
+    notes: "MySQL Enterprise Server - Commercial"
 
 server:
   name: oracle_performance_mcp
@@ -22,9 +41,101 @@ server:
 # LOGGING CONFIGURATION
 # ============================================================================
 logging:
-  level: INFO  # DEBUG, INFO, WARNING, ERROR
+  level: DEBUG  # DEBUG, INFO, WARNING, ERROR
   show_tool_calls: true  # Log full tool invocations from LLM
   show_sql_queries: true  # Log actual SQL queries executed (verbose)
+
+# ============================================================================
+# MYSQL SQL ANALYSIS CONFIGURATION
+# ============================================================================
+mysql_analysis:
+  
+  # ========================================
+  # OUTPUT FORMAT (Simple)
+  # ========================================
+  output_preset: "standard"  # standard | compact | minimal
+  
+  # Presets explained:
+  # 
+  # STANDARD - Full analysis (RECOMMENDED for MySQL)
+  #   • EXPLAIN FORMAT=JSON plan
+  #   • All table statistics (rows, size, engine)
+  #   • Index structure + usage statistics
+  #   • Duplicate index detection
+  #   • Best for: Complete MySQL analysis
+  #   • Size: ~15K tokens
+  # 
+  # COMPACT - Essential data only
+  #   • JSON plan only
+  #   • Tables in query + row counts
+  #   • Index structure (no usage stats)
+  #   • Best for: Quick analysis, token limits
+  #   • Size: ~8K tokens
+  # 
+  # MINIMAL - Quick check
+  #   • JSON plan only
+  #   • Table row counts
+  #   • No index details
+  #   • Best for: Fast feedback, simple queries
+  #   • Size: ~5K tokens
+  
+  # ========================================
+  # DATA COLLECTION CONTROL (Advanced)
+  # ========================================
+  # Fine-tune what data to collect
+  
+  # === CORE ANALYSIS (Cannot be disabled) ===
+  core:
+    execution_plan:
+      enabled: true
+      description: "EXPLAIN FORMAT=JSON showing optimizer's execution strategy"
+      criticality: CRITICAL
+      note: "Never executes actual SQL - only simulates plan"
+      
+    plan_details:
+      enabled: true
+      description: "Detailed plan steps with costs, access types, filtering"
+      criticality: CRITICAL
+      why_needed: "Shows join methods, index usage, full table scans"
+
+  # === METADATA (Recommended) ===
+  metadata:
+    table_statistics:
+      enabled: true
+      description: "Row counts, storage engine, data size, index size"
+      criticality: HIGH
+      why_needed: "Optimizer uses for cardinality estimates"
+      performance_impact: LOW
+      tables_accessed: [information_schema.TABLES]
+      
+    index_statistics:
+      enabled: true
+      description: "Index structure, columns, cardinality, uniqueness"
+      criticality: HIGH
+      why_needed: "Shows available indexes and their composition"
+      performance_impact: LOW
+      tables_accessed: [information_schema.STATISTICS]
+
+  # === RUNTIME DIAGNOSTICS (Production insights) ===
+  runtime:
+    index_usage_stats:
+      enabled: true
+      description: "Real index usage from performance_schema (reads, writes, latency)"
+      criticality: HIGH
+      why_needed: "Identifies UNUSED indexes and hot indexes in production"
+      performance_impact: LOW
+      requires: "performance_schema enabled"
+      tables_accessed: [performance_schema.table_io_waits_summary_by_index_usage]
+      fallback_on_error: true
+      note: "Shows which indexes are actually used vs. just defined"
+      
+    duplicate_index_detection:
+      enabled: true
+      description: "Detects redundant indexes (same columns, same order)"
+      criticality: MEDIUM
+      why_needed: "Cleanup opportunities - save disk space and write performance"
+      performance_impact: NEGLIGIBLE
+      note: "Computed from information_schema.STATISTICS"
 
 # ============================================================================
 # ORACLE SQL ANALYSIS CONFIGURATION
@@ -192,27 +303,63 @@ oracle_analysis:
 # Quick shortcuts for common scenarios
 
 analysis_modes:
-  quick:
-    description: "Fastest - plan and basic stats only"
-    enabled_features:
-      - core.execution_plan
-      - core.plan_details
-      - metadata.table_statistics
-      - metadata.index_statistics
-    
-  standard:
-    description: "Balanced - all metadata + optimizer params (recommended)"
-    enabled_features:
-      - all metadata features
-      - optimizer.parameters
-      - storage.segment_sizes
-      - runtime.partition_pruning_diagnostic
-    
-  deep:
-    description: "Comprehensive - everything enabled"
-    enabled_features:
-      - all features
+  # ========================================
+  # MYSQL ANALYSIS MODES
+  # ========================================
+  mysql:
+    quick:
+      description: "Fastest - plan and basic stats only"
+      enabled_features:
+        - core.execution_plan
+        - core.plan_details
+        - metadata.table_statistics
       
-  # Custom mode - user can override individual features
-  custom:
-    description: "Use individual feature flags from oracle_analysis section"
+    standard:
+      description: "Balanced - all metadata + index usage (RECOMMENDED)"
+      enabled_features:
+        - core.execution_plan
+        - core.plan_details
+        - metadata.table_statistics
+        - metadata.index_statistics
+        - runtime.index_usage_stats
+        - runtime.duplicate_index_detection
+      
+    minimal:
+      description: "Minimal - plan and row counts only"
+      enabled_features:
+        - core.execution_plan
+        - core.plan_details
+        - metadata.table_statistics
+      
+    # Custom mode - user can override individual features
+    custom:
+      description: "Use individual feature flags from mysql_analysis section"
+
+  # ========================================
+  # ORACLE ANALYSIS MODES
+  # ========================================
+  oracle:
+    quick:
+      description: "Fastest - plan and basic stats only"
+      enabled_features:
+        - core.execution_plan
+        - core.plan_details
+        - metadata.table_statistics
+        - metadata.index_statistics
+      
+    standard:
+      description: "Balanced - all metadata + optimizer params (recommended)"
+      enabled_features:
+        - all metadata features
+        - optimizer.parameters
+        - storage.segment_sizes
+        - runtime.partition_pruning_diagnostic
+      
+    deep:
+      description: "Comprehensive - everything enabled"
+      enabled_features:
+        - all features
+        
+    # Custom mode - user can override individual features
+    custom:
+      description: "Use individual feature flags from oracle_analysis section"

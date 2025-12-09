@@ -9,6 +9,9 @@ ENV PATH="/root/.local/bin:${PATH}"
 
 WORKDIR /app
 
+# Create data directory for history tracking
+RUN mkdir -p /app/data
+
 # Copy requirements.txt
 COPY requirements.txt .
 

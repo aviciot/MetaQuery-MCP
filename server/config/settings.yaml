@@ -24,7 +24,7 @@ server:
 logging:
   level: INFO  # DEBUG, INFO, WARNING, ERROR
   show_tool_calls: true  # Log full tool invocations from LLM
-  show_sql_queries: false  # Log actual SQL queries executed (verbose)
+  show_sql_queries: true  # Log actual SQL queries executed (verbose)
 
 # ============================================================================
 # ORACLE SQL ANALYSIS CONFIGURATION

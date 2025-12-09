@@ -1,6 +1,7 @@
 import yaml
 import os
 import logging
+import sys
 
 SETTINGS_PATH = os.path.join(os.path.dirname(__file__), "config/settings.yaml")
 
@@ -19,6 +20,10 @@ class Config:
         self.log_level = log_config.get("level", "INFO").upper()
         self.show_tool_calls = log_config.get("show_tool_calls", True)
         self.show_sql_queries = log_config.get("show_sql_queries", False)
+        
+        # DEBUG: Force print to stderr to see in Docker logs
+        sys.stderr.write(f"[CONFIG-DEBUG] show_sql_queries = {self.show_sql_queries}\n")
+        sys.stderr.flush()
 
         # Oracle analysis configuration
         oracle_analysis = self._raw.get("oracle_analysis", {})

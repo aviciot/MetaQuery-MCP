@@ -12,8 +12,10 @@ from config import config
 
 def dbg(*msg):
     """Debug print with prefix - respects config.show_sql_queries"""
-    if config.show_sql_queries:
-        print("[ORACLE-COLLECTOR]", *msg)
+    # TEMP: Always print for debugging - bypass config check
+    import sys
+    sys.stderr.write("[ORACLE-COLLECTOR] " + " ".join(str(m) for m in msg) + "\n")
+    sys.stderr.flush()
 
 
 # ============================================================
@@ -116,9 +118,111 @@ def extract_columns_from_sql(sql_text: str):
 # PLAN COLLECTION
 # ============================================================
 
+def validate_sql(cur, sql_text: str):
+    """
+    Pre-validate SQL for safety and correctness.
+    Returns (is_valid, error_message, is_dangerous)
+    
+    Safety checks:
+    - Block DDL (CREATE, DROP, ALTER, TRUNCATE)
+    - Block DML writes (INSERT, UPDATE, DELETE, MERGE)
+    - Block DCL (GRANT, REVOKE)
+    - Block system operations (SHUTDOWN, STARTUP)
+    - Only allow SELECT queries
+    """
+    try:
+        clean = sql_text.strip().upper()
+        if clean.endswith(";"):
+            clean = clean[:-1]
+        
+        # SECURITY CHECK 1: Only allow SELECT statements
+        dangerous_keywords = [
+            'INSERT', 'UPDATE', 'DELETE', 'MERGE',  # DML writes
+            'CREATE', 'DROP', 'ALTER', 'TRUNCATE', 'RENAME',  # DDL
+            'GRANT', 'REVOKE',  # DCL
+            'COMMIT', 'ROLLBACK', 'SAVEPOINT',  # Transaction control
+            'SHUTDOWN', 'STARTUP',  # System operations
+            'EXECUTE', 'CALL',  # Procedure calls
+            'BEGIN', 'DECLARE',  # PL/SQL blocks
+        ]
+        
+        # Check first word after WITH/comment removal
+        first_word = clean.split()[0] if clean.split() else ''
+        
+        # Allow WITH clause (for CTEs)
+        if first_word == 'WITH':
+            # Find the main query after CTE
+            # Look for SELECT after the CTE definition
+            if 'SELECT' not in clean:
+                return False, "No SELECT found in query with WITH clause", True
+        elif first_word != 'SELECT':
+            return False, f"Only SELECT queries are allowed. Found: {first_word}", True
+        
+        # Check for dangerous keywords anywhere in the query
+        for keyword in dangerous_keywords:
+            # Use word boundaries to avoid false positives
+            # e.g., "UPDATE_DATE" column should be OK
+            import re
+            pattern = r'\b' + re.escape(keyword) + r'\b'
+            if re.search(pattern, clean):
+                return False, f"DANGEROUS OPERATION BLOCKED: {keyword} statements are not allowed", True
+        
+        # SECURITY CHECK 2: Block INTO clauses (SELECT INTO)
+        if re.search(r'\bINTO\b', clean):
+            return False, "DANGEROUS OPERATION BLOCKED: SELECT INTO is not allowed", True
+        
+        # SECURITY CHECK 3: Limit subquery depth to prevent DoS
+        paren_depth = 0
+        max_depth = 0
+        for char in clean:
+            if char == '(':
+                paren_depth += 1
+                max_depth = max(max_depth, paren_depth)
+            elif char == ')':
+                paren_depth -= 1
+        
+        if max_depth > 10:
+            return False, f"Query too complex: subquery nesting depth {max_depth} exceeds limit of 10", False
+        
+        # SYNTAX/SEMANTIC CHECK: Try to execute with ROWNUM = 0
+        original_sql = sql_text.strip()
+        if original_sql.endswith(";"):
+            original_sql = original_sql[:-1]
+        
+        # Wrap in subquery and limit to 0 rows - validates structure without data
+        test_stmt = f"SELECT * FROM ({original_sql}) subq WHERE ROWNUM = 0"
+        cur.execute(test_stmt)
+        cur.fetchall()
+        
+        return True, None, False
+        
+    except Exception as e:
+        error_msg = str(e)
+        # Extract Oracle error code and message
+        if "ORA-" in error_msg:
+            # Clean up the error message
+            error_msg = error_msg.split('\n')[0]  # First line only
+        return False, error_msg, False
+
+
 def explain_plan(cur, sql_text: str, stmt_id: str):
     try:
         dbg("-> explain_plan START")
+        
+        # First check if PLAN_TABLE exists
+        try:
+            cur.execute("SELECT COUNT(*) FROM plan_table WHERE ROWNUM = 1")
+            dbg("✓ PLAN_TABLE exists and is accessible")
+        except Exception as e:
+            dbg("✗ PLAN_TABLE check failed:", e)
+            dbg("   Attempting to create PLAN_TABLE...")
+            try:
+                cur.execute("@?/rdbms/admin/utlxplan.sql")
+                cur.connection.commit()
+                dbg("✓ PLAN_TABLE created successfully")
+            except Exception as create_err:
+                dbg("✗ Cannot create PLAN_TABLE:", create_err)
+        
         cur.execute("DELETE FROM plan_table WHERE statement_id = :sid", sid=stmt_id)
         cur.connection.commit()
 
@@ -126,8 +230,25 @@ def explain_plan(cur, sql_text: str, stmt_id: str):
         if clean.endswith(";"):
             clean = clean[:-1]
 
+        # PRE-VALIDATE SQL BEFORE EXPLAIN PLAN
+        dbg("Pre-validating SQL syntax and semantics...")
+        is_valid, validation_error, is_dangerous = validate_sql(cur, clean)
+        
+        if is_dangerous:
+            dbg("🚨 DANGEROUS OPERATION BLOCKED:", validation_error)
+            dbg("   This query was blocked for security reasons")
+            return [f"SECURITY BLOCK: {validation_error}"], validation_error
+        
+        if not is_valid:
+            dbg("✗ SQL VALIDATION FAILED:", validation_error)
+            dbg("   Cannot run EXPLAIN PLAN on invalid SQL")
+            dbg("   Returning early with validation error")
+            return [f"SQL VALIDATION ERROR: {validation_error}"], validation_error
+        
+        dbg("✓ SQL is valid and safe - proceeding with EXPLAIN PLAN")
+
         stmt = f"EXPLAIN PLAN SET STATEMENT_ID = '{stmt_id}' FOR {clean}"
-        dbg("Running:", stmt[:180], "...")
+        dbg("Running EXPLAIN PLAN:", stmt[:180], "...")
 
         cur.execute(stmt)
         cur.connection.commit()
@@ -336,6 +457,12 @@ def get_index_columns(cur, tables):
     rows = [dict(zip(cols, r)) for r in cur.fetchall()]
 
     dbg("Index column rows:", len(rows))
+    
+    # Debug: Show what columns actually exist
+    if rows:
+        dbg("Sample index columns found:")
+        for r in rows[:10]:  # Show first 10
+            dbg(f"  {r['table_owner']}.{r['table_name']}.{r['column_name']}")
 
     grouped = defaultdict(list)
     for r in rows:

@@ -188,7 +188,7 @@ On your machine (volume-mounted): Check if you have a volume mount in `docker-co
 
 1. Enter container:
 ```powershell
-docker exec -it oracle_performance_mcp sh
+docker exec -it performance_mcp sh
 ```
 
 2. Query database:
@@ -225,7 +225,7 @@ SELECT * FROM executions ORDER BY timestamp DESC LIMIT 5;
 - The fix was applied, so rebuild: `docker compose up --build`
 
 ### If no history shows up:
-- Check if database file exists: `docker exec oracle_performance_mcp ls -la /app/data/`
+- Check if database file exists: `docker exec performance_mcp ls -la /app/data/`
 - Run test script: `python test_history_tracking.py`
 - Check fingerprint in logs - should be consistent across runs
 

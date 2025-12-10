@@ -1,6 +1,6 @@
 # Oracle & MySQL Performance MCP Server 🚀
 
-**AI-powered SQL performance analysis with historical tracking, multi-layer security, and multi-database support**
+**AI-powered SQL performance analysis with historical tracking, multi-layer security, authentication, and multi-database support**
 
 ---
 
@@ -14,6 +14,8 @@ This MCP server performs **deep SQL performance analysis without executing queri
 - 🎨 **Visual Execution Plans** - ASCII tree diagrams with warning emojis
 - 🤖 **What-If Growth Simulation** - Predicts performance at scale
 - 🔐 **Multi-Layer Security** - 3-layer defense against dangerous SQL
+- 🔑 **Optional API Authentication** - Bearer token authentication for secure deployments
+- 📈 **Real-Time Performance Monitoring** - Database health, top queries, and trends
 - 🐬 **Native MySQL 8.0+ Analysis** - Full MySQL support with performance_schema
 
 Future database engines (PostgreSQL, Snowflake, SQL Server) can be added easily with the modular architecture.
@@ -46,6 +48,8 @@ The LLM automatically selects the correct analysis tool based on:
 ---
 
 ## 🛠️ Available Tools
+
+### SQL Analysis Tools
 
 ### 1. `list_available_databases()`
 
@@ -95,6 +99,72 @@ Side-by-side execution plan comparison for both Oracle and MySQL.
 
 ---
 
+### Performance Monitoring Tools (Oracle)
+
+### 4. `get_database_health(db_name, time_range_minutes)`
+
+Real-time Oracle database health monitoring.
+
+**Returns:**
+- Overall health score (0-100)
+- System metrics: CPU usage, active sessions, memory
+- Cache hit ratios (buffer cache, library cache, dictionary cache)
+- Top wait events with time spent
+- Health status: HEALTHY / WARNING / CRITICAL
+
+**Example:**
+```
+get_database_health("transformer_master", 5)
+```
+
+---
+
+### 5. `get_top_queries(db_name, metric, top_n, time_range_hours, exclude_sys, schema_filter, module_filter)`
+
+Retrieve top queries by performance metric.
+
+**Metrics:**
+- `cpu_time` - Highest CPU consumers
+- `elapsed_time` - Longest running queries
+- `buffer_gets` - Most logical reads
+- `executions` - Most frequently executed
+
+**Filtering:**
+- `exclude_sys=true` - Filter out system/internal queries (default)
+- `schema_filter` - Limit to specific schema (e.g., "OWS")
+- `module_filter` - Filter by application module
+
+**Returns:**
+- SQL text with query patterns
+- Execution statistics
+- Resource usage (CPU, buffer gets, disk reads)
+- First/last seen timestamps
+
+---
+
+### 6. `get_performance_trends(db_name, metric, hours_back, interval_minutes)`
+
+Historical performance trends with JSON chart data.
+
+**Metrics:**
+- `cpu_usage` - CPU percentage over time
+- `active_sessions` - Session count trends
+- `wait_events` - Wait event patterns
+- `cache_hit_ratio` - Buffer cache efficiency
+
+**Returns:**
+- Time-series data points
+- JSON chart data (Chart.js compatible)
+- Trend analysis (increasing/decreasing/stable)
+- Anomaly detection
+
+**Example:**
+```
+get_performance_trends("way4_docker7", "cpu_usage", 24, 60)
+```
+
+---
+
 ## 🐬 MySQL-Specific Tools
 
 ### `analyze_mysql_query(db_name, sql_text)`
@@ -117,6 +187,21 @@ MySQL-specific plan comparison:
 ---
 
 ## 🆕 What's New in This Version
+
+### Performance Monitoring (Oracle)
+- ✅ Real-time database health monitoring (CPU, memory, sessions, cache)
+- ✅ Top queries analysis with filtering (exclude system queries, filter by schema/module)
+- ✅ Performance trends with JSON chart data (Chart.js compatible)
+- ✅ Historical snapshots with 30-day retention
+- ✅ Configurable output formats (standard/compact/minimal)
+
+### API Authentication
+- ✅ Optional Bearer token authentication
+- ✅ Multiple API key support with client naming
+- ✅ Per-client request logging
+- ✅ Public health check endpoints
+- ✅ Zero performance overhead
+- ✅ Easy setup with key generator utility
 
 ### MySQL Support
 - ✅ Full EXPLAIN FORMAT=JSON parsing
@@ -279,7 +364,30 @@ mysql_analysis:
       enabled: true
     duplicate_detection:
       enabled: true
+
+performance_monitoring:
+  snapshots:
+    retention_days: 30  # Keep history for 30 days
+  output_preset: "compact"
+  chart_format: "json"
 ```
+
+### Authentication (Optional)
+```yaml
+server:
+  authentication:
+    enabled: false  # Set to true to enable API key authentication
+    api_keys:
+      - name: "claude_desktop"
+        key: "your-secure-api-key-here"
+        description: "Claude Desktop client"
+```
+
+**To enable authentication:**
+1. Generate API key: `python generate_api_key.py`
+2. Add key to `settings.yaml` (set `enabled: true`)
+3. Configure client with `Authorization: Bearer <api_key>` header
+4. See [AUTHENTICATION_GUIDE.md](./AUTHENTICATION_GUIDE.md) for details
 
 ### Logging
 ```yaml
@@ -486,6 +594,29 @@ DELETE FROM avi.customer_order WHERE amount = 0;
 Expected: Security validation blocks the query immediately with error message.
 ```
 
+### Performance Monitoring Tests
+
+#### 8. Database Health Check
+```
+Check the current health status of transformer_master database.
+
+Use get_database_health to see CPU usage, active sessions, cache hit ratios, and top wait events.
+```
+
+#### 9. Top CPU Queries
+```
+Show me the top 10 queries consuming the most CPU time on way4_docker7 in the last 4 hours.
+
+Filter out system queries and focus on application queries.
+```
+
+#### 10. Performance Trends
+```
+Show me the CPU usage trend for transformer_master over the last 24 hours with hourly intervals.
+
+Include a chart visualization of the trend.
+```
+
 ---
 
 ## 📊 Response Structure
@@ -532,6 +663,22 @@ Expected: Security validation blocks the query immediately with error message.
 - **Data Modification**: INSERT, UPDATE, DELETE, REPLACE, MERGE, TRUNCATE
 - **Schema Changes**: CREATE, DROP, ALTER, RENAME
 - **Permissions**: GRANT, REVOKE
+- **System Operations**: SHUTDOWN, KILL, EXECUTE, CALL
+- **Data Exfiltration**: SELECT INTO (Oracle), INTO OUTFILE/DUMPFILE (MySQL)
+- **Table Locking**: LOCK, UNLOCK TABLES (MySQL)
+
+### DoS Prevention
+- Maximum 10 levels of subquery nesting
+- Query length limit: 100KB
+- Validation query timeouts
+
+### Optional API Authentication
+- **Bearer Token Authentication** - API key validation via Authorization header
+- **Multi-Client Support** - Track and manage multiple API keys
+- **Public Endpoints** - Health checks remain accessible without auth
+- **Zero Performance Impact** - <1ms overhead per request
+
+**See [AUTHENTICATION_GUIDE.md](./AUTHENTICATION_GUIDE.md) for setup details**
 - **System Operations**: SHUTDOWN, KILL, EXECUTE, CALL
 - **Data Exfiltration**: SELECT INTO (Oracle), INTO OUTFILE/DUMPFILE (MySQL)
 - **Table Locking**: LOCK, UNLOCK TABLES (MySQL)

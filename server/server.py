@@ -16,6 +16,7 @@ from config import config
 from mcp_app import mcp
 import db_connector
 from db_connector import oracle_connector
+from auth_middleware import AuthMiddleware
 
 
 # -------------------------------------------------------------
@@ -194,6 +195,16 @@ async def version(request):
 app.add_route("/version", version, methods=["GET"])
 app.add_route("/healthz", health, methods=["GET"])
 app.add_route("/_info", info, methods=["GET"])
+
+
+# ---- Authentication ----
+# Add authentication middleware (must be before CORS)
+app.add_middleware(AuthMiddleware, config=config)
+
+if config.auth_enabled:
+    logger.info(f"🔐 Authentication ENABLED - {len(config.api_keys)} API key(s) configured")
+else:
+    logger.info("🔓 Authentication DISABLED - Server is open to all clients")
 
 
 # ---- CORS ----

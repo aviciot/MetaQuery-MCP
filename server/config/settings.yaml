@@ -8,7 +8,10 @@ database_presets:
     user: stg
     password: stg90
     dsn: stgrndm-np-01.qa.bos.credorax.com:1521/stgdev
-
+    performance_monitoring:
+      enabled: true
+      allow_system_stats: true
+      allow_top_queries: true
   way4_docker8:
     type: oracle
     user: inform
@@ -20,6 +23,16 @@ database_presets:
     user: inform
     password: Term1k50
     dsn: docker-lin07.dev1.bos.credorax.com:15207/orclpdb1
+    performance_monitoring:
+      enabled: false
+      allow_system_stats: true
+      allow_top_queries: true
+
+  # way4_docker4:
+  #   type: oracle
+  #   user: inform
+  #   password: Term1k50
+  #   dsn: docker-lin07.dev1.bos.credorax.com:15204/orclpdb1
 
   # ============================================================================
   # MYSQL DATABASES
@@ -35,7 +48,90 @@ database_presets:
     notes: "MySQL Enterprise Server - Commercial"
 
 server:
-  name: oracle_performance_mcp
+  name: performance_mcp
+  
+  # ========================================
+  # AUTHENTICATION (Optional)
+  # ========================================
+  # If enabled, clients must provide API key in Authorization header
+  # Format: Authorization: Bearer <api_key>
+  authentication:
+    enabled: true  # Set to true to enable API key authentication
+    api_keys:
+      - name: "client_1"
+        key: "U1f1mzzSvNKhrtntjJeE0O1KUz-7r7TiuR1-ushQXoc"
+        description: "mcpJam client access"
+      - name: "development"
+        key: "dev-api-key-12345"
+        description: "Development and testing"
+    # Note: Generate secure keys with: python -c "import secrets; print(secrets.token_urlsafe(32))"
+
+# ============================================================================
+# PERFORMANCE MONITORING CONFIGURATION
+# ============================================================================
+performance_monitoring:
+  
+  # ========================================
+  # OUTPUT FORMAT
+  # ========================================
+  output_preset: "compact"  # standard | compact | minimal
+  
+  # Presets explained:
+  # 
+  # STANDARD - Full details
+  #   • All system metrics with descriptions
+  #   • Complete query text for top queries
+  #   • Detailed wait event breakdown
+  #   • Best for: Reports, comprehensive analysis
+  # 
+  # COMPACT - Essential data (RECOMMENDED)
+  #   • Key metrics only
+  #   • Truncated SQL (first 200 chars)
+  #   • Top 3 wait events
+  #   • Best for: LLM analysis, quick overview
+  # 
+  # MINIMAL - Quick health check
+  #   • Health score + critical metrics only
+  #   • SQL IDs only (no text)
+  #   • Single worst wait event
+  #   • Best for: Fast alerts, dashboards
+  
+  # ========================================
+  # CHART FORMAT
+  # ========================================
+  chart_format: "json"  # json | ascii | both
+  
+  # Chart format explained:
+  # 
+  # JSON - Structured data for visualization (RECOMMENDED)
+  #   • Works with matplotlib, plotly, Chart.js
+  #   • LLM can describe trends
+  #   • Easy to parse and extend
+  # 
+  # ASCII - Terminal-friendly text charts
+  #   • Quick visual in terminal
+  #   • No dependencies needed
+  #   • Limited to simple line/bar charts
+  # 
+  # BOTH - Include both formats
+  #   • Best of both worlds
+  #   • Larger response size
+  
+  # ========================================
+  # HISTORICAL SNAPSHOTS
+  # ========================================
+  snapshots:
+    retention_days: 30  # Keep history for 30 days
+    auto_cleanup: true  # Delete old snapshots automatically
+    
+  # ========================================
+  # SCHEDULED SNAPSHOTS (Phase 2 - Disabled)
+  # ========================================
+  scheduled_snapshots:
+    enabled: false  # Set to true to enable background collection
+    system_health_interval_minutes: 5
+    top_queries_interval_minutes: 15
+    note: "Requires scheduler.py to be enabled"
 
 # ============================================================================
 # LOGGING CONFIGURATION

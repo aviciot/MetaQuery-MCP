@@ -12,8 +12,16 @@ class Config:
 
         # Read server section
         server = self._raw.get("server", {})
-        self.server_name = server.get("name", "oracle_performance_mcp")
+        self.server_name = server.get("name", "performance_mcp")
         self.server_port = server.get("port", 8300)
+        
+        # Authentication configuration
+        auth_config = server.get("authentication", {})
+        self.auth_enabled = auth_config.get("enabled", False)
+        self.api_keys = {
+            key_config["key"]: key_config["name"] 
+            for key_config in auth_config.get("api_keys", [])
+        }
 
         # Logging configuration
         log_config = self._raw.get("logging", {})
@@ -28,6 +36,9 @@ class Config:
         # Oracle analysis configuration
         oracle_analysis = self._raw.get("oracle_analysis", {})
         self.output_preset = oracle_analysis.get("output_preset", "standard").lower()
+
+        # Performance monitoring configuration
+        self.performance_monitoring = self._raw.get("performance_monitoring", {})
 
         # Database presets
         self.database_presets = self._raw.get("database_presets", {})

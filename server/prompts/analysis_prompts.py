@@ -318,6 +318,31 @@ Ignore: index problems, join problems (unless related to partitions)
 Explain how to improve partition pruning."""
 
 @mcp.prompt()
+def find_slow_queries(db_name: str):
+    """
+    Simple prompt: Find the slowest queries on a database.
+    
+    Example usage in Claude:
+    "Use the find_slow_queries prompt for transformer_master"
+    """
+    return f"""Find the slowest queries running on {db_name}.
+
+📋 **Your Task:**
+1. Call the tool: get_top_queries(db_name="{db_name}", metric="elapsed_time", limit=5)
+2. Show me the results in a simple table with:
+   - SQL_ID
+   - How many times it ran (executions)
+   - Total time it took (elapsed_time_total_sec)
+   - Average time per run (elapsed_time_per_exec_ms)
+
+3. For the SLOWEST query (rank 1), tell me:
+   - Why is it slow? (look at the numbers)
+   - Should we investigate it? (YES if: runs often AND takes long time)
+
+**Keep it simple - I just want to know which queries to optimize first!**
+"""
+
+@mcp.prompt()
 def oracle_rewrite_query(db_name: str, original_query: str):
     """Rewrite and optimize Oracle query based on analysis"""
     

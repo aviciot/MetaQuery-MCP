@@ -3,12 +3,18 @@
 import logging
 import traceback
 import json
+import asyncio
 from mcp_app import mcp
 from db_connector import oracle_connector
 from tools.oracle_collector_impl import run_full_oracle_analysis as run_collector
 from tools.plan_visualizer import build_visual_plan, get_plan_summary
 from history_tracker import normalize_and_hash, store_history, get_recent_history, compare_with_history
 from config import config
+
+# Business logic imports
+from tools.explain_query_logic import explain_query_logic
+from tools.business_context_collector import collect_business_context
+from knowledge_db import get_knowledge_db
 
 
 logger = logging.getLogger("oracle_analysis")
@@ -324,3 +330,256 @@ def compare_oracle_query_plans(db_name: str, original_sql: str, optimized_sql: s
         except:
             pass
 
+
+@mcp.tool(
+    name="explain_business_logic",
+    description=(
+        "📖 [ORACLE ONLY] Explains the business logic behind an Oracle SQL query.\n\n"
+        "⚠️ DATABASE TYPE: This tool is for ORACLE databases only.\n\n"
+        "This tool analyzes SQL queries and provides:\n"
+        "✅ Business-focused explanation of what the query does\n"
+        "✅ Table relationships and entity descriptions\n"
+        "✅ Column meanings from database comments\n"
+        "✅ Inferred business domain and entity types\n\n"
+        "📊 Returns: Structured context and a prompt for generating business explanation.\n\n"
+        "💡 Use this when you need to understand WHAT a query does from a business perspective,\n"
+        "   not just HOW it performs (use analyze_oracle_query for performance analysis).\n\n"
+        "🔄 Results are cached in PostgreSQL for faster future lookups.\n"
+        "   First run may take longer as it queries Oracle metadata."
+    ),
+)
+def explain_business_logic(
+    db_name: str, 
+    sql_text: str, 
+    follow_relationships: bool = True,
+    max_depth: int = 2
+):
+    """
+    MCP tool to explain the business logic of a SQL query.
+    
+    Args:
+        db_name: Oracle database preset name
+        sql_text: SQL query to explain
+        follow_relationships: Whether to follow FK relationships (default True)
+        max_depth: How deep to follow relationships (default 2)
+    """
+    # Log tool invocation
+    if config.show_tool_calls:
+        logger.info("=" * 80)
+        logger.info("🔧 TOOL CALLED BY LLM: explain_business_logic")
+        logger.info(f"   📊 Database: {db_name}")
+        logger.info(f"   📝 SQL Length: {len(sql_text)} characters")
+        logger.info(f"   🔗 Follow Relationships: {follow_relationships}")
+        logger.info(f"   📏 Max Depth: {max_depth}")
+        logger.info("=" * 80)
+    else:
+        logger.info(f"📖 explain_business_logic(db={db_name}) called")
+    
+    if not sql_text or not sql_text.strip():
+        return {"error": "sql_text is empty", "context": {}, "prompt": ""}
+    
+    try:
+        # Connect to Oracle
+        conn = oracle_connector.connect(db_name)
+        cur = conn.cursor()
+        
+        logger.info("📡 Connected to Oracle, collecting business context…")
+        
+        # Get knowledge DB for caching (optional - works without it)
+        try:
+            knowledge_db = get_knowledge_db()
+            logger.info("📦 Knowledge DB connected for caching")
+        except Exception as e:
+            logger.warning(f"⚠️ Knowledge DB not available: {e}")
+            knowledge_db = None
+        
+        # Get default schema from connection
+        try:
+            cur.execute("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM DUAL")
+            default_schema = cur.fetchone()[0]
+            logger.info(f"📋 Default schema: {default_schema}")
+        except:
+            default_schema = None
+        
+        # Run the async explanation function synchronously
+        result = asyncio.get_event_loop().run_until_complete(
+            explain_query_logic(
+                sql=sql_text,
+                oracle_cursor=cur,
+                knowledge_db=knowledge_db,
+                default_schema=default_schema,
+                follow_relationships=follow_relationships,
+                max_depth=max_depth,
+                use_cache=True
+            )
+        )
+        
+        if "error" in result:
+            logger.error(f"❌ Explanation failed: {result['error']}")
+            return result
+        
+        # Format the response
+        stats = result.get("stats", {})
+        logger.info(f"✅ Business context collected: {stats.get('tables_analyzed', 0)} tables, "
+                   f"{stats.get('relationships_found', 0)} relationships")
+        logger.info(f"   Cache: {stats.get('cache_hits', 0)} hits, {stats.get('cache_misses', 0)} misses")
+        logger.info(f"   Duration: {stats.get('duration_ms', 0)}ms")
+        
+        return {
+            "context": result.get("formatted_context", ""),
+            "explanation_prompt": result.get("explanation_prompt", ""),
+            "tables": result.get("table_context", {}),
+            "relationships": result.get("relationships", []),
+            "stats": stats,
+            "prompt": (
+                "Use the 'explanation_prompt' field to generate a business-focused explanation. "
+                "The context includes table descriptions, column meanings, and relationships. "
+                "Focus on explaining WHAT the query does in business terms, not technical SQL details."
+            )
+        }
+        
+    except Exception as e:
+        logger.exception("❌ Exception during business logic explanation")
+        return {
+            "error": f"Internal error: {e}",
+            "trace": traceback.format_exc(),
+            "context": {},
+            "prompt": ""
+        }
+    finally:
+        try:
+            if 'conn' in locals():
+                conn.close()
+        except:
+            pass
+
+
+@mcp.tool(
+    name="get_table_business_context",
+    description=(
+        "📋 [ORACLE ONLY] Gets business context for specific tables (comments, columns, relationships).\n\n"
+        "⚠️ DATABASE TYPE: This tool is for ORACLE databases only.\n\n"
+        "Use this tool when you want to understand a table's purpose without a full query.\n\n"
+        "✅ Returns: Table comments, column descriptions, foreign key relationships\n"
+        "✅ Follows FK relationships to discover related tables\n"
+        "✅ Results are cached for fast future lookups\n\n"
+        "💡 Provide table names as comma-separated values: 'SCHEMA.TABLE1, SCHEMA.TABLE2'"
+    ),
+)
+def get_table_business_context(
+    db_name: str,
+    table_names: str,
+    follow_relationships: bool = True,
+    max_depth: int = 1
+):
+    """
+    MCP tool to get business context for specific tables.
+    
+    Args:
+        db_name: Oracle database preset name  
+        table_names: Comma-separated table names (e.g., "OWNER.TABLE1, OWNER.TABLE2")
+        follow_relationships: Whether to follow FK relationships
+        max_depth: How deep to follow relationships
+    """
+    logger.info(f"📋 get_table_business_context(db={db_name}, tables={table_names})")
+    
+    if not table_names or not table_names.strip():
+        return {"error": "table_names is empty"}
+    
+    # Parse table names
+    tables = []
+    for part in table_names.split(","):
+        part = part.strip()
+        if "." in part:
+            schema, table = part.split(".", 1)
+            tables.append((schema.upper().strip(), table.upper().strip()))
+        else:
+            tables.append((None, part.upper()))
+    
+    if not tables:
+        return {"error": "No valid table names provided"}
+    
+    try:
+        conn = oracle_connector.connect(db_name)
+        cur = conn.cursor()
+        
+        # Resolve schemas for tables without schema prefix
+        try:
+            cur.execute("SELECT SYS_CONTEXT('USERENV', 'CURRENT_SCHEMA') FROM DUAL")
+            default_schema = cur.fetchone()[0]
+        except:
+            default_schema = None
+        
+        resolved_tables = []
+        for schema, table in tables:
+            if schema:
+                resolved_tables.append((schema, table))
+            elif default_schema:
+                resolved_tables.append((default_schema, table))
+            else:
+                # Try to find the table
+                cur.execute(
+                    "SELECT owner FROM all_tables WHERE table_name = :t AND ROWNUM = 1",
+                    {"t": table}
+                )
+                row = cur.fetchone()
+                if row:
+                    resolved_tables.append((row[0], table))
+                else:
+                    logger.warning(f"⚠️ Could not find table: {table}")
+        
+        if not resolved_tables:
+            return {"error": "Could not resolve any table names"}
+        
+        # Get knowledge DB for caching
+        try:
+            knowledge_db = get_knowledge_db()
+        except:
+            knowledge_db = None
+        
+        # Collect business context
+        context = collect_business_context(
+            cur,
+            resolved_tables,
+            follow_relationships=follow_relationships,
+            max_depth=max_depth
+        )
+        
+        # Cache results if possible
+        if knowledge_db:
+            from tools.explain_query_logic import cache_collected_context
+            cache_collected_context(knowledge_db, context)
+        
+        # Format response
+        return {
+            "tables": {
+                f"{k[0]}.{k[1]}": v
+                for k, v in context.get("table_context", {}).items()
+            },
+            "relationships": [
+                {
+                    "from": f"{r['from'][0]}.{r['from'][1]}",
+                    "to": f"{r['to'][0]}.{r['to'][1]}",
+                    "from_columns": r["from_columns"],
+                    "to_columns": r["to_columns"]
+                }
+                for r in context.get("relationships", [])
+            ],
+            "discovered_tables": context.get("discovered_tables", []),
+            "stats": context.get("stats", {}),
+            "prompt": (
+                "This response contains business context for the requested tables. "
+                "Use table comments and column descriptions to understand their business purpose. "
+                "Follow relationships to understand how tables connect to each other."
+            )
+        }
+        
+    except Exception as e:
+        logger.exception("❌ Exception during table context retrieval")
+        return {"error": str(e), "trace": traceback.format_exc()}
+    finally:
+        try:
+            if 'conn' in locals():
+                conn.close()
+        except:
+            pass

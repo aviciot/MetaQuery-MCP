@@ -3,6 +3,12 @@ database_presets:
   # ============================================================================
   # ORACLE DATABASES
   # ============================================================================
+  transformer_prod:
+    type: oracle
+    user: transformer
+    password: transformer99
+    dsn: bidb02.prod.bos.credorax.com:1521/stgprod
+
   transformer_master:
     type: oracle
     user: stg
@@ -28,12 +34,7 @@ database_presets:
       allow_system_stats: true
       allow_top_queries: true
 
-  # way4_docker4:
-  #   type: oracle
-  #   user: inform
-  #   password: Term1k50
-  #   dsn: docker-lin07.dev1.bos.credorax.com:15204/orclpdb1
-
+ 
   # ============================================================================
   # MYSQL DATABASES
   # ============================================================================
@@ -459,3 +460,10 @@ analysis_modes:
     # Custom mode - user can override individual features
     custom:
       description: "Use individual feature flags from oracle_analysis section"
+
+
+
+slack:
+  token: ${SLACK_BOT_TOKEN}  # Set via environment variable
+  socket_token: ${SLACK_APP_TOKEN}  # Set via environment variable
+    

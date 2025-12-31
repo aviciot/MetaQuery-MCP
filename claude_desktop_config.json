@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "database_performance": {
+      "command": "node",
+      "args": [
+        "C:\\Users\\acohen.SHIFT4CORP\\Desktop\\PythonProjects\\MCP Performance\\claude-mcp-proxy.js"
+      ],
+      "env": {
+        "MCP_SERVER_URL": "http://10.55.125.43:8300/mcp",
+        "MCP_AUTH_TOKEN": "U1f1mzzSvNKhrtntjJeE0O1KUz-7r7TiuR1-ushQXoc"
+      }
+    }
+  }
+}

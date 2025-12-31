@@ -1,0 +1,31 @@
+{
+  "mcpServers": {
+    "database_performance_mcp": {
+      "url": "http://10.55.125.43:8300/mcp",
+      "transport": "http",
+      "headers": {
+        "Authorization": "Bearer U1f1mzzSvNKhrtntjJeE0O1KUz-7r7TiuR1-ushQXoc"
+      },
+      "timeout": 45000,
+      "metadata": {
+        "name": "Database Performance Analyzer",
+        "description": "Multi-database performance monitoring and query analysis for Oracle and MySQL databases",
+        "version": "1.0.0",
+        "databases": [
+          "transformer_master (Oracle)",
+          "way4_docker8 (Oracle)",
+          "way4_docker7 (Oracle)",
+          "mysql_devdb03_avi (MySQL)"
+        ],
+        "capabilities": [
+          "Database health monitoring",
+          "Top SQL queries analysis",
+          "Execution plan comparison",
+          "Query performance statistics",
+          "Session monitoring",
+          "Table and index statistics"
+        ]
+      }
+    }
+  }
+}

@@ -506,24 +506,29 @@ def get_sample_column_values(
 def infer_entity_type(table_name: str, columns: List[str]) -> Optional[str]:
     """
     Infer entity type from table name and columns.
+    Priority matters - more specific patterns are checked first.
     """
     name_upper = table_name.upper()
     
-    # Direct name patterns
-    entity_patterns = {
-        'customer': ['CUSTOMER', 'CUST', 'CLIENT', 'BUYER'],
-        'order': ['ORDER', 'ORD', 'PURCHASE'],
-        'transaction': ['TRANS', 'TXN', 'PAYMENT', 'SETTLEMENT'],
-        'product': ['PRODUCT', 'PROD', 'ITEM', 'SKU'],
-        'merchant': ['MERCHANT', 'SELLER', 'VENDOR', 'SHOP'],
-        'user': ['USER', 'ACCOUNT', 'MEMBER', 'PROFILE'],
-        'invoice': ['INVOICE', 'INV', 'BILL'],
-        'employee': ['EMPLOYEE', 'EMP', 'STAFF', 'WORKER'],
-        'audit_log': ['AUDIT', 'LOG', 'HISTORY', 'TRAIL'],
-        'lookup': ['TYPE', 'CODE', 'STATUS', 'CATEGORY', 'CONFIG'],
-    }
+    # Ordered patterns - more specific first to avoid false matches
+    # e.g., CUSTOMER_ORDERS should match 'order' not 'customer'
+    ordered_patterns = [
+        # Very specific patterns first
+        ('audit_log', ['AUDIT_LOG', 'AUDIT_TRAIL', 'CHANGE_LOG', 'HISTORY_LOG']),
+        ('transaction', ['TRANSACTION', 'TRANS_', '_TXN', 'TXN_', 'PAYMENT', 'SETTLEMENT']),
+        ('order', ['ORDER', 'ORD_', '_ORD', 'PURCHASE']),
+        ('invoice', ['INVOICE', 'INV_', '_INV', 'BILL']),
+        ('product', ['PRODUCT', 'PROD_', '_PROD', 'ITEM', 'SKU']),
+        ('merchant', ['MERCHANT', 'SELLER', 'VENDOR', 'SHOP']),
+        ('customer', ['CUSTOMER', 'CUST_', '_CUST', 'CLIENT', 'BUYER']),
+        ('user', ['USER', 'ACCOUNT', 'MEMBER', 'PROFILE']),
+        ('employee', ['EMPLOYEE', 'EMP_', '_EMP', 'STAFF', 'WORKER']),
+        # Generic patterns last
+        ('lookup', ['_TYPE', 'TYPE_', '_CODE', 'CODE_', '_STATUS', 'STATUS_', 'CATEGORY', 'CONFIG', 'LOOKUP']),
+        ('audit_log', ['AUDIT', 'LOG', 'HISTORY', 'TRAIL']),
+    ]
     
-    for entity, patterns in entity_patterns.items():
+    for entity, patterns in ordered_patterns:
         for pattern in patterns:
             if pattern in name_upper:
                 return entity
@@ -571,13 +576,29 @@ def infer_domain(table_name: str, columns: List[str], fk_tables: List[str]) -> O
 def is_lookup_table(row_count: Optional[int], column_count: int) -> bool:
     """
     Determine if a table is likely a lookup/reference table.
+    
+    Lookup tables typically have:
+    - Small row count (< 1000) AND reasonable column count
+    - OR very few columns (< 5) AND small-ish row count
+    
+    Large tables with few columns might be narrow fact tables, not lookups.
     """
-    # Small row count
-    if row_count is not None and row_count < 1000:
+    # If row count is unknown, be conservative
+    if row_count is None:
+        return column_count <= 5
+    
+    # Definitely not a lookup if millions of rows
+    if row_count >= 100000:
+        return False
+    
+    # Classic lookup: small row count
+    if row_count < 1000:
         return True
-    # Few columns (typical of lookups)
-    if column_count <= 5:
+    
+    # Medium table with very few columns might be lookup
+    if row_count < 10000 and column_count <= 5:
         return True
+    
     return False
 
 

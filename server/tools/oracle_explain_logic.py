@@ -212,9 +212,10 @@ def cache_collected_context(knowledge_db, context: Dict[str, Any]):
         
         try:
             knowledge_db.save_table_knowledge(
-                schema_name=owner,
+                db_name=db_name,
+                owner=owner,
                 table_name=table,
-                table_comment=table_ctx.get("comment"),
+                oracle_comment=table_ctx.get("comment"),
                 columns=[
                     {
                         "name": c.get("name"),
@@ -226,8 +227,7 @@ def cache_collected_context(knowledge_db, context: Dict[str, Any]):
                     for c in table_ctx.get("columns", [])
                 ],
                 primary_key_columns=table_ctx.get("primary_key", []),
-                row_count=table_ctx.get("row_count"),
-                is_lookup_table=table_ctx.get("is_lookup", False),
+                num_rows=table_ctx.get("row_count"),
                 inferred_entity_type=table_ctx.get("inferred_entity_type"),
                 inferred_domain=table_ctx.get("inferred_domain")
             )

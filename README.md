@@ -348,6 +348,46 @@ class Config:
 
 ---
 
+#### 🧠 **How Output Preset Affects LLM Analysis**
+
+The `output_preset` configuration directly impacts the quality and depth of analysis the LLM can provide:
+
+**`standard` Preset (Maximum Analysis Quality):**
+- ✅ **Full Index Recommendations**: LLM can suggest new indexes because it sees all index statistics
+- ✅ **Detailed Constraint Analysis**: Can identify missing foreign keys or constraint issues
+- ✅ **Physical Storage Insights**: Can recommend partition strategies based on segment sizes
+- ✅ **Execution Plan Text**: Visual plan tree helps LLM understand operation hierarchy
+- ⚠️ **Trade-off**: Requires 15K-40K tokens - may hit context limits on complex queries
+
+**`compact` Preset (Balanced Recommendations):**
+- ✅ **Focused Index Recommendations**: Can suggest indexes for objects in execution plan only
+- ✅ **Constraint Analysis**: Full constraint data preserved for relationship understanding
+- ✅ **Cost/Cardinality Analysis**: Structured plan_details sufficient for join order analysis
+- ⚠️ **Limited**: Cannot recommend indexes for unused tables, cannot analyze storage issues
+- ⚠️ **No Visual Plan**: Missing execution plan text may reduce plan comprehension
+
+**`minimal` Preset (Limited Recommendations):**
+- ✅ **Join Order Analysis**: Can still analyze cardinality and cost estimates
+- ✅ **High-Level Optimization**: Can identify expensive operations and table access patterns
+- ⚠️ **No Index Recommendations**: Missing index statistics prevent index creation suggestions
+- ⚠️ **No Constraint Analysis**: Cannot identify relationship issues or missing foreign keys
+- ⚠️ **No Storage Analysis**: Cannot recommend partitioning or storage optimizations
+
+**Recommendation Guidance:**
+
+| Use Case | Recommended Preset | Rationale |
+|----------|-------------------|-----------|
+| **Production Query Optimization** | `compact` | Balanced - good recommendations without excessive token usage |
+| **New Feature Development** | `standard` | Need comprehensive analysis including unused table optimization |
+| **Quick Troubleshooting** | `compact` | Faster response, adequate for identifying immediate issues |
+| **Very Large Queries (20+ tables)** | `minimal` → upgrade to `compact` if needed | Start minimal to avoid token limits, upgrade if analysis insufficient |
+| **Index Tuning Projects** | `standard` | Must see all index statistics for comprehensive recommendations |
+| **Storage Planning** | `standard` | Need segment sizes and partition info for storage decisions |
+
+**💡 Pro Tip:** If LLM responds with "I need more data to make recommendations", it's a signal to increase the preset level for that specific query.
+
+---
+
 ### New Diagnostic Features ⭐
 
 **What's New in This Version:**

@@ -203,7 +203,7 @@ def get_cached_context(
     return cached, uncached
 
 
-def cache_collected_context(knowledge_db, context: Dict[str, Any]):
+def cache_collected_context(knowledge_db, db_name: str, context: Dict[str, Any]):
     """
     Save collected context to PostgreSQL cache.
     """
@@ -518,7 +518,7 @@ async def explain_oracle_query_logic(
         
         # Step 5: Cache the collected context
         if use_cache and knowledge_db:
-            cache_collected_context(knowledge_db, oracle_context)
+            cache_collected_context(knowledge_db, db_name, oracle_context)
         
         # Merge with cached context
         for key, ctx in oracle_context.get("table_context", {}).items():

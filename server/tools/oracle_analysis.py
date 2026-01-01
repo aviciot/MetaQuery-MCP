@@ -348,7 +348,7 @@ def compare_oracle_query_plans(db_name: str, original_sql: str, optimized_sql: s
         "   First run may take longer as it queries Oracle metadata."
     ),
 )
-def explain_business_logic(
+async def explain_business_logic(
     db_name: str, 
     sql_text: str, 
     follow_relationships: bool = True,
@@ -401,18 +401,16 @@ def explain_business_logic(
         except:
             default_schema = None
         
-        # Run the async explanation function synchronously
-        result = asyncio.get_event_loop().run_until_complete(
-            explain_oracle_query_logic(
-                sql=sql_text,
-                oracle_cursor=cur,
-                db_name=db_name,
-                knowledge_db=knowledge_db,
-                default_schema=default_schema,
-                follow_relationships=follow_relationships,
-                max_depth=max_depth,
-                use_cache=True
-            )
+        # Run the async explanation function
+        result = await explain_oracle_query_logic(
+            sql=sql_text,
+            oracle_cursor=cur,
+            db_name=db_name,
+            knowledge_db=knowledge_db,
+            default_schema=default_schema,
+            follow_relationships=follow_relationships,
+            max_depth=max_depth,
+            use_cache=True
         )
         
         if "error" in result:

@@ -22,5 +22,10 @@ services:
     environment:
       MCP_PORT: ${MCP_PORT:-8300}
       UVICORN_RELOAD: "true"
+      KNOWLEDGE_DB_HOST: ${KNOWLEDGE_DB_HOST:-host.docker.internal}
+      KNOWLEDGE_DB_PORT: ${KNOWLEDGE_DB_PORT:-5433}
+      KNOWLEDGE_DB_NAME: ${KNOWLEDGE_DB_NAME:-omni}
+      KNOWLEDGE_DB_USER: ${KNOWLEDGE_DB_USER:-postgres}
+      KNOWLEDGE_DB_PASSWORD: ${KNOWLEDGE_DB_PASSWORD:-postgres}
 
     restart: unless-stopped

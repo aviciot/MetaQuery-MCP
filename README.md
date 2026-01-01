@@ -186,7 +186,297 @@ MySQL-specific plan comparison:
 
 ---
 
-### 7. `explain_business_logic(db_name, sql_text, follow_relationships, max_depth)` ⭐ NEW
+## 🔐 Oracle Analysis - Permissions & Data Collection
+
+### Required Oracle Permissions
+
+**Minimum Permissions (All features work):**
+```sql
+-- Standard Oracle user with:
+GRANT CONNECT TO your_user;
+GRANT SELECT ANY TABLE TO your_user;  -- Or explicit grants on target schemas
+
+-- Required for metadata collection:
+GRANT SELECT ON ALL_TABLES TO your_user;
+GRANT SELECT ON ALL_INDEXES TO your_user;
+GRANT SELECT ON ALL_IND_COLUMNS TO your_user;
+GRANT SELECT ON ALL_TAB_COLUMNS TO your_user;
+GRANT SELECT ON ALL_TAB_COL_STATISTICS TO your_user;
+GRANT SELECT ON ALL_CONSTRAINTS TO your_user;
+GRANT SELECT ON ALL_CONS_COLUMNS TO your_user;
+GRANT SELECT ON ALL_PART_TABLES TO your_user;
+GRANT SELECT ON ALL_PART_KEY_COLUMNS TO your_user;
+GRANT SELECT ON ALL_TAB_COMMENTS TO your_user;
+GRANT SELECT ON ALL_COL_COMMENTS TO your_user;
+
+-- For PLAN_TABLE (usually exists, or create with @?/rdbms/admin/utlxplan.sql):
+GRANT INSERT, DELETE ON PLAN_TABLE TO your_user;
+```
+
+**Enhanced Permissions (Recommended):**
+```sql
+-- For optimizer parameters (performance insights):
+GRANT SELECT ON V$PARAMETER TO your_user;  
+-- Or: GRANT SELECT_CATALOG_ROLE TO your_user;
+
+-- For disk space analysis (segment sizes):
+GRANT SELECT ON DBA_SEGMENTS TO your_user;  
+-- Falls back to USER_SEGMENTS if not granted
+```
+
+**Permissions Test:**
+```sql
+-- Test access to required views
+SELECT COUNT(*) FROM ALL_TABLES WHERE ROWNUM = 1;
+SELECT COUNT(*) FROM ALL_INDEXES WHERE ROWNUM = 1;
+SELECT COUNT(*) FROM V$PARAMETER WHERE ROWNUM = 1;  -- Optional
+SELECT COUNT(*) FROM DBA_SEGMENTS WHERE ROWNUM = 1;  -- Optional
+```
+
+---
+
+### Data Collection Overview
+
+**What We Collect & Why It Matters:**
+
+| Data Type | Source | Severity | Why Important | Performance Impact |
+|-----------|--------|----------|---------------|-------------------|
+| **Execution Plan** | PLAN_TABLE, DBMS_XPLAN | 🔴 CRITICAL | Shows optimizer's strategy, identifies full scans, join methods, costs | High - this is the foundation |
+| **Plan Details** | PLAN_TABLE | 🔴 CRITICAL | Structured plan steps with IDs, costs, cardinality for detailed analysis | High - enables diagnostics |
+| **Table Statistics** | ALL_TABLES | 🔴 CRITICAL | Row counts, blocks, last analyzed date - optimizer uses these for cost calculations | Medium - affects all queries |
+| **Index Statistics** | ALL_INDEXES | 🟡 HIGH | B-tree levels, clustering factor, distinct keys - determines index efficiency | Medium - key for recommendations |
+| **Index Columns** | ALL_IND_COLUMNS | 🟡 HIGH | Which columns each index covers - identifies missing/redundant indexes | Low - small dataset |
+| **Column Statistics** | ALL_TAB_COL_STATISTICS | 🟡 HIGH | Distinct values, nulls, histograms - explains cardinality estimates | Medium - can be large |
+| **Constraints** | ALL_CONSTRAINTS, ALL_CONS_COLUMNS | 🟢 MEDIUM | Primary keys, foreign keys, unique constraints - shows data relationships | Low - small dataset |
+| **Partition Info** | ALL_PART_TABLES, ALL_PART_KEY_COLUMNS | 🟢 MEDIUM | Partitioning strategy and keys - detects pruning failures | Low - only for partitioned tables |
+| **Optimizer Parameters** | V$PARAMETER | 🔵 LOW | Optimizer mode, cost adjustments - explains unexpected plans | Low - ~20 rows |
+| **Segment Sizes** | DBA_SEGMENTS / USER_SEGMENTS | 🔵 LOW | Actual disk space in MB/GB - provides physical storage context | Medium - can be slow on large DBs |
+| **Table Comments** | ALL_TAB_COMMENTS | 🔵 LOW | Business descriptions - used by explain_business_logic tool | Low - small dataset |
+| **Column Comments** | ALL_COL_COMMENTS | 🔵 LOW | Column meanings - semantic analysis | Medium - can be many rows |
+
+**Severity Legend:**
+- 🔴 **CRITICAL**: Analysis will fail or be meaningless without this data
+- 🟡 **HIGH**: Analysis works but recommendations will be limited
+- 🟢 **MEDIUM**: Nice-to-have, adds depth to analysis
+- 🔵 **LOW**: Optional, provides additional context
+
+---
+
+### Output Filtering Configuration
+
+Control how much data is returned using the `output_preset` setting in `server/config.py`:
+
+**Option 1: `standard` (Default - Full Data)**
+```python
+OUTPUT_PRESET = "standard"  # Returns everything
+```
+
+**Returns:**
+- All execution plan steps
+- All table/index statistics
+- All column statistics  
+- All constraints
+- All optimizer parameters
+- All segment sizes
+- All partition diagnostics
+- Historical context
+
+**Use when:** You need complete analysis for deep optimization, or working with small queries (1-5 tables)
+
+---
+
+**Option 2: `compact` (Filtered - Plan Objects Only)**
+```python
+OUTPUT_PRESET = "compact"  # Returns only data for tables/indexes in execution plan
+```
+
+**Returns:**
+- Execution plan (structured plan_details only, no text)
+- Table/index stats for objects in plan only
+- Column stats (all - needed for cardinality)
+- Constraints (all - needed for relationships)
+- Optimizer parameters (all - small dataset)
+- Segment sizes for plan objects only
+- Partition diagnostics
+
+**Filters out:**
+- Execution plan text (saves ~10KB per query)
+- Tables not in execution plan
+- Indexes not referenced in plan
+
+**Use when:** Query joins 10+ tables but plan only uses 3-4 (common in star schemas)
+
+---
+
+**Option 3: `minimal` (Essentials Only)**
+```python
+OUTPUT_PRESET = "minimal"  # Bare minimum for analysis
+```
+
+**Returns:**
+- Structured plan details
+- Basic table stats (owner, name, num_rows, blocks only)
+- Summary counts
+
+**Filters out:**
+- Execution plan text
+- Index statistics
+- Column statistics
+- Constraints
+- Optimizer parameters
+- Segment sizes
+- Partition info
+
+**Use when:** You only need high-level cost/cardinality analysis, or handling 20+ table queries
+
+---
+
+**Performance Comparison:**
+
+| Preset | Typical Response Size | LLM Context Tokens | Best For |
+|--------|----------------------|-------------------|----------|
+| **standard** | 50-150 KB | 15,000-40,000 | Deep analysis, optimization projects |
+| **compact** | 20-60 KB | 6,000-18,000 | Production queries, routine analysis |
+| **minimal** | 5-15 KB | 1,500-4,500 | Quick checks, very large queries |
+
+**Configuration:**
+Edit `server/config.py`:
+```python
+class Config:
+    output_preset: str = "compact"  # Change to "standard" or "minimal"
+```
+
+---
+
+### New Diagnostic Features ⭐
+
+**What's New in This Version:**
+
+#### 1. **Query Intent Classification**
+Automatically detects query type and purpose:
+```json
+{
+  "query_intent": {
+    "type": "aggregation_report",
+    "patterns": ["GROUP BY aggregation", "date range filter"],
+    "typical_use": "Aggregated reporting or analytics",
+    "complexity": "moderate"
+  }
+}
+```
+
+**Detected Patterns:**
+- `aggregation_report` - GROUP BY queries
+- `pagination_query` - ROWNUM/FETCH FIRST
+- `top_n_query` - ORDER BY + ROWNUM
+- `reconciliation_query` - Multiple LEFT JOINs with NULL checks
+- `multi_source_query` - UNION/UNION ALL
+- `complex_join_query` - 4+ table joins
+- `count_query` - Simple COUNT(*) queries
+- `full_data_export` - SELECT * queries
+
+---
+
+#### 2. **Performance Issue Diagnosis**
+Natural language explanations of performance problems:
+```json
+{
+  "performance_issues": [
+    {
+      "severity": "CRITICAL",
+      "issue": "Full table scan on GTW_ODS.GATEWAY_TRANSACTIONS",
+      "rows_scanned": 45000000,
+      "cost": 8234,
+      "why": "Oracle is reading all 45,000,000 rows instead of using an index",
+      "causes": [
+        "3 index(es) exist but not being used",
+        "Possible reasons: data type mismatch, function on column, OR conditions"
+      ],
+      "fix": "CREATE INDEX idx_gateway_transactions_date ON GTW_ODS.GATEWAY_TRANSACTIONS(transaction_date)",
+      "estimated_improvement": "Potential 90-99% reduction in execution time"
+    }
+  ]
+}
+```
+
+**Severity Levels:**
+- `CRITICAL` - Full scan on 10M+ rows
+- `HIGH` - Full scan on 1M-10M rows  
+- `MEDIUM` - Full scan on 100K-1M rows
+- `LOW` - Full scan on <100K rows
+
+---
+
+#### 3. **Cartesian Product Detection**
+Identifies accidental cross joins:
+```json
+{
+  "cartesian_warnings": [
+    {
+      "severity": "CRITICAL",
+      "issue": "Potential Cartesian product (cross join)",
+      "operation": "NESTED LOOPS",
+      "cardinality": 5000000,
+      "why": "NESTED LOOPS operation with very high cardinality and no join predicate",
+      "impact": "Produces 5,000,000 rows (likely unintended)",
+      "fix": "Add join condition between tables (e.g., AND t1.id = t2.id)"
+    }
+  ]
+}
+```
+
+**Detects:**
+- NESTED LOOPS with high cardinality and no predicates
+- Explicit MERGE JOIN CARTESIAN operations
+- Missing join conditions causing exponential row growth
+
+---
+
+#### 4. **Anomaly Detection**
+Flags unusual data patterns:
+```json
+{
+  "anomalies": [
+    {
+      "severity": "MEDIUM",
+      "type": "missing_statistics",
+      "table": "GTW_ODS.PAYMENT_METHODS",
+      "issue": "Table has no statistics or zero rows",
+      "impact": "Optimizer cannot make informed decisions - may choose inefficient plan",
+      "fix": "EXEC DBMS_STATS.GATHER_TABLE_STATS('GTW_ODS', 'PAYMENT_METHODS')"
+    }
+  ]
+}
+```
+
+**Detects:**
+- Missing or stale statistics
+- Extreme cardinality mismatches (estimated vs actual)
+- Tables with zero rows (possible data issues)
+
+---
+
+#### 5. **Smart Prompts**
+The tool now provides contextual hints:
+- Warns about critical performance issues
+- Suggests using `explain_business_logic` for business context
+- Highlights historical regressions
+- Points out Cartesian products immediately
+
+**Example Prompt:**
+```
+🚨 CRITICAL: 2 critical performance issue(s) detected! 
+Review facts['performance_issues'] for detailed diagnostics with fix recommendations.
+
+💡 TIP: To understand the BUSINESS PURPOSE of this query (what it does, not just performance), 
+use the 'explain_business_logic' tool. It will analyze table relationships, 
+infer business domains, and explain the query in plain English. 
+Cached lookups make it very fast (~700ms).
+```
+
+---
+
+###  7. `explain_business_logic(db_name, sql_text, follow_relationships, max_depth)` ⭐ NEW
 
 **AI-Powered Business Logic Explanation with PostgreSQL Caching**
 

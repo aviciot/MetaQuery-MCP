@@ -543,6 +543,123 @@ class KnowledgeDB:
             return True
     
     # ========================================
+    # Admin Documentation (Table Overrides)
+    # ========================================
+    
+    def set_table_documentation(
+        self,
+        db_name: str,
+        owner: str,
+        table_name: str,
+        business_description: str,
+        business_purpose: Optional[str] = None,
+        domain: Optional[str] = None,
+        entity_type: Optional[str] = None
+    ) -> bool:
+        """
+        Admin function: Set business documentation for a table.
+        
+        This overrides auto-inferred values with admin-provided documentation.
+        """
+        if not self.is_enabled:
+            return False
+            
+        with self._cursor() as cur:
+            if cur is None:
+                return False
+            
+            # Update existing or insert new
+            cur.execute("""
+                INSERT INTO table_knowledge (
+                    db_name, owner, table_name,
+                    business_description, business_purpose,
+                    inferred_domain, inferred_entity_type,
+                    confidence_score
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, 1.0)
+                ON CONFLICT (db_name, owner, table_name) DO UPDATE SET
+                    business_description = EXCLUDED.business_description,
+                    business_purpose = COALESCE(EXCLUDED.business_purpose, table_knowledge.business_purpose),
+                    inferred_domain = COALESCE(EXCLUDED.inferred_domain, table_knowledge.inferred_domain),
+                    inferred_entity_type = COALESCE(EXCLUDED.inferred_entity_type, table_knowledge.inferred_entity_type),
+                    confidence_score = 1.0,
+                    last_refreshed = NOW()
+            """, (
+                db_name, owner.upper(), table_name.upper(),
+                business_description, business_purpose,
+                domain, entity_type
+            ))
+            
+            logger.info(f"📝 Admin set documentation for {owner}.{table_name}")
+            return True
+    
+    def get_admin_documentation(
+        self,
+        db_name: str,
+        owner: str,
+        table_name: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get admin-provided documentation for a table.
+        
+        Returns None if no admin documentation exists.
+        """
+        if not self.is_enabled:
+            return None
+            
+        with self._cursor() as cur:
+            if cur is None:
+                return None
+            
+            cur.execute("""
+                SELECT business_description, business_purpose, 
+                       inferred_domain, inferred_entity_type
+                FROM table_knowledge
+                WHERE db_name = %s AND owner = %s AND table_name = %s
+                  AND business_description IS NOT NULL
+                  AND confidence_score >= 1.0
+            """, (db_name, owner.upper(), table_name.upper()))
+            
+            row = cur.fetchone()
+            if row:
+                return {
+                    "description": row["business_description"],
+                    "purpose": row["business_purpose"],
+                    "domain": row["inferred_domain"],
+                    "entity_type": row["inferred_entity_type"],
+                    "is_admin_provided": True
+                }
+            return None
+    
+    def list_documented_tables(self, db_name: Optional[str] = None) -> List[Dict[str, str]]:
+        """List all tables that have admin-provided documentation."""
+        if not self.is_enabled:
+            return []
+            
+        with self._cursor() as cur:
+            if cur is None:
+                return []
+            
+            if db_name:
+                cur.execute("""
+                    SELECT db_name, owner, table_name, business_description
+                    FROM table_knowledge
+                    WHERE db_name = %s
+                      AND business_description IS NOT NULL
+                      AND confidence_score >= 1.0
+                    ORDER BY owner, table_name
+                """, (db_name,))
+            else:
+                cur.execute("""
+                    SELECT db_name, owner, table_name, business_description
+                    FROM table_knowledge
+                    WHERE business_description IS NOT NULL
+                      AND confidence_score >= 1.0
+                    ORDER BY db_name, owner, table_name
+                """)
+            
+            return [dict(row) for row in cur.fetchall()]
+    
+    # ========================================
     # Utility Methods
     # ========================================
     

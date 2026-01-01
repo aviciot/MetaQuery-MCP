@@ -502,6 +502,52 @@ def get_sample_column_values(
 # Business Context Inference
 # ============================================================
 
+def classify_table_type(owner: str, table_name: str) -> str:
+    """
+    Classify table as 'business', 'operational', 'system', or 'audit'.
+    
+    This helps filter out non-business tables from explanations.
+    """
+    name_upper = table_name.upper()
+    owner_upper = owner.upper()
+    
+    # System/DBA tables - skip for business logic
+    system_prefixes = ('V$', 'GV$', 'DBA_', 'ALL_', 'USER_', 'CDB_', 'V_$')
+    if any(name_upper.startswith(p) for p in system_prefixes):
+        return 'system'
+    
+    # System schemas
+    system_schemas = ('SYS', 'SYSTEM', 'DBSNMP', 'OUTLN', 'APPQOSSYS', 
+                      'WMSYS', 'EXFSYS', 'CTXSYS', 'XDB', 'ORDDATA')
+    if owner_upper in system_schemas:
+        return 'system'
+    
+    # Operational/monitoring tables
+    operational_patterns = ['_LOG', '_HIST', '_ARCHIVE', '_BACKUP', '_TEMP', 
+                           '_TMP', '_BAK', '_OLD', 'DEBUG_', 'TRACE_', 
+                           'MONITOR_', 'METRIC_', 'STATS_']
+    if any(p in name_upper for p in operational_patterns):
+        return 'operational'
+    
+    # Audit tables
+    audit_patterns = ['AUDIT', '_AUD', 'AUD_', 'CHANGE_LOG', 'ACTIVITY_LOG']
+    if any(p in name_upper for p in audit_patterns):
+        return 'audit'
+    
+    # Everything else is business
+    return 'business'
+
+
+def is_business_relevant(owner: str, table_name: str) -> bool:
+    """
+    Check if table should be included in business logic explanation.
+    
+    Returns False for system views, operational tables, etc.
+    """
+    table_type = classify_table_type(owner, table_name)
+    return table_type in ('business', 'audit')  # Include audit for context
+
+
 def infer_entity_type(table_name: str, columns: List[str]) -> Optional[str]:
     """
     Infer entity type from table name and columns.
@@ -702,6 +748,9 @@ def collect_oracle_business_context(
         
         row_count = row_counts.get(key)
         
+        # Classify table type
+        table_type = classify_table_type(owner, table)
+        
         table_context[key] = {
             "owner": owner,
             "table_name": table,
@@ -714,23 +763,42 @@ def collect_oracle_business_context(
             "inferred_entity_type": infer_entity_type(table, column_names),
             "inferred_domain": infer_domain(table, column_names, related_tables),
             "is_core_table": key in tables,  # Was in original query
+            "table_type": table_type,  # business, operational, system, audit
+            "is_business_relevant": table_type in ('business', 'audit'),
         }
+    
+    # Filter out system tables from relationships for cleaner output
+    business_relationships = [
+        r for r in relationships
+        if is_business_relevant(r["from"][0], r["from"][1]) 
+        and is_business_relevant(r["to"][0], r["to"][1])
+    ]
     
     # Calculate duration
     duration_ms = int((datetime.now() - start_time).total_seconds() * 1000)
     
+    # Count skipped tables
+    system_tables = [
+        f"{o}.{t}" for o, t in all_tables 
+        if not is_business_relevant(o, t)
+    ]
+    
     return {
         "table_context": table_context,
-        "relationships": relationships,
+        "relationships": business_relationships,
+        "all_relationships": relationships,  # Include all for debugging
         "core_tables": [{"owner": o, "table": t} for o, t in tables],
         "discovered_tables": [
             {"owner": o, "table": t} 
             for o, t in all_tables 
             if (o, t) not in set(tables)
         ],
+        "skipped_system_tables": system_tables,
         "stats": {
             "tables_analyzed": len(all_tables),
-            "relationships_found": len(relationships),
+            "business_tables": len([t for t in all_tables if is_business_relevant(t[0], t[1])]),
+            "system_tables_skipped": len(system_tables),
+            "relationships_found": len(business_relationships),
             "oracle_queries": oracle_queries,
             "duration_ms": duration_ms,
             "max_depth_reached": current_depth

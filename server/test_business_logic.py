@@ -19,7 +19,9 @@ from tools.oracle_explain_logic import extract_tables_from_sql, build_relationsh
 from tools.oracle_business_context import (
     infer_entity_type,
     infer_domain,
-    is_lookup_table
+    is_lookup_table,
+    classify_table_type,
+    is_business_relevant
 )
 
 
@@ -268,6 +270,72 @@ def test_graph_generation():
     return failed == 0
 
 
+def test_table_classification():
+    """Test table type classification (business vs system vs operational)."""
+    print("\n=== Testing Table Classification ===\n")
+    
+    test_cases = [
+        # (owner, table, expected_type, description)
+        ("SALES", "CUSTOMERS", "business", "Normal business table"),
+        ("SALES", "ORDERS", "business", "Normal business table"),
+        ("SYS", "DBA_TABLES", "system", "System schema"),
+        ("MYAPP", "V$SESSION", "system", "V$ prefix"),
+        ("MYAPP", "GV$SQL", "system", "GV$ prefix"),
+        ("MYAPP", "ALL_OBJECTS", "system", "ALL_ prefix"),
+        ("MYAPP", "ACTIVITY_LOG", "operational", "_LOG suffix"),
+        ("MYAPP", "ORDER_HISTORY", "operational", "_HIST suffix"),
+        ("MYAPP", "AUDIT_TRAIL", "audit", "AUDIT pattern"),
+        ("MYAPP", "TRANSACTIONS_AUD", "audit", "_AUD suffix"),
+        ("MYAPP", "DATA_BACKUP", "operational", "_BACKUP suffix"),
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for owner, table, expected, desc in test_cases:
+        result = classify_table_type(owner, table)
+        
+        if result == expected:
+            print(f"✅ PASS: {owner}.{table} → {result} ({desc})")
+            passed += 1
+        else:
+            print(f"❌ FAIL: {owner}.{table} - Expected: {expected}, Got: {result}")
+            failed += 1
+    
+    print(f"\nTable Classification: {passed} passed, {failed} failed")
+    return failed == 0
+
+
+def test_business_relevance():
+    """Test business relevance filter."""
+    print("\n=== Testing Business Relevance ===\n")
+    
+    test_cases = [
+        ("SALES", "CUSTOMERS", True, "Business table - include"),
+        ("SALES", "AUDIT_TRAIL", True, "Audit table - include for context"),
+        ("SYS", "V$SQL", False, "System view - exclude"),
+        ("MYAPP", "DBA_INDEXES", False, "DBA view - exclude"),
+        ("MYAPP", "DATA_TEMP", False, "_TEMP suffix - exclude"),
+        ("SALES", "ORDER_ARCHIVE", False, "_ARCHIVE - operational, exclude"),
+    ]
+    
+    passed = 0
+    failed = 0
+    
+    for owner, table, expected, desc in test_cases:
+        result = is_business_relevant(owner, table)
+        
+        if result == expected:
+            print(f"✅ PASS: {owner}.{table} → {result} ({desc})")
+            passed += 1
+        else:
+            print(f"❌ FAIL: {owner}.{table} - Expected: {expected}, Got: {result}")
+            failed += 1
+    
+    print(f"\nBusiness Relevance: {passed} passed, {failed} failed")
+    return failed == 0
+
+
 def run_all_tests():
     """Run all unit tests."""
     print("=" * 60)
@@ -281,6 +349,8 @@ def run_all_tests():
     all_passed &= test_domain_inference()
     all_passed &= test_lookup_detection()
     all_passed &= test_graph_generation()
+    all_passed &= test_table_classification()
+    all_passed &= test_business_relevance()
     
     print("\n" + "=" * 60)
     if all_passed:

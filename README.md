@@ -321,6 +321,259 @@ Automatically excludes:
 - Temporary tables: `%_TEMP`, `%_TMP`
 - CTEs and inline views
 
+---
+
+#### 🔧 How It Works - Technical Details
+
+**1. SQL Parsing & Table Extraction**
+```python
+# Extracts table references from SQL
+SELECT t.*, r.retry_count FROM gateway_transactions t JOIN gtw_trans_retry r
+                                ↓
+["GATEWAY_TRANSACTIONS", "GTW_TRANS_RETRY"]
+```
+
+**2. Schema Resolution**
+- Queries `ALL_TABLES` to find actual schema for each table
+- Handles unqualified table names using default schema (current user)
+- Resolves aliases and CTEs
+
+**3. Metadata Collection (Oracle Queries)**
+```sql
+-- Table metadata
+SELECT table_name, num_rows, comments 
+FROM ALL_TABLES, ALL_TAB_COMMENTS
+WHERE owner = :schema AND table_name = :table
+
+-- Column metadata
+SELECT column_name, data_type, nullable, comments
+FROM ALL_TAB_COLUMNS, ALL_COL_COMMENTS
+WHERE owner = :schema AND table_name = :table
+ORDER BY column_id
+
+-- Primary Keys
+SELECT cols.column_name
+FROM ALL_CONSTRAINTS cons
+JOIN ALL_CONS_COLUMNS cols 
+  ON cons.constraint_name = cols.constraint_name
+WHERE cons.constraint_type = 'P'
+  AND cons.owner = :schema
+  AND cons.table_name = :table
+
+-- Foreign Key Relationships
+SELECT 
+  a.table_name as from_table,
+  a.column_name as from_column,
+  c_pk.table_name as to_table,
+  b.column_name as to_column,
+  a.constraint_name
+FROM ALL_CONS_COLUMNS a
+JOIN ALL_CONSTRAINTS c ON a.constraint_name = c.constraint_name
+JOIN ALL_CONSTRAINTS c_pk ON c.r_constraint_name = c_pk.constraint_name
+JOIN ALL_CONS_COLUMNS b ON c_pk.constraint_name = b.constraint_name
+WHERE c.constraint_type = 'R'
+  AND c.owner = :schema
+  AND c.table_name = :table
+```
+
+**4. Relationship Traversal**
+```
+Level 0: Query tables [A, B]
+Level 1: Find all FKs from A and B → discovers [C, D]
+Level 2: Find all FKs from C and D → discovers [E, F]
+Max depth = 2: Stop here
+```
+
+**5. Business Semantics Inference**
+```python
+# Entity type classification
+if "transaction" in table_name.lower(): entity = "Transaction"
+if "_id" in column_name.lower(): entity = infer_from_id_column()
+
+# Domain inference
+keywords = {
+  "payment|transaction|gateway": "Payment Processing",
+  "customer|order|cart": "Order Management",
+  "user|account|auth": "User Management"
+}
+
+# Table type classification
+if row_count < 1000 and has_foreign_keys: type = "lookup"
+if row_count > 1M and has_timestamps: type = "business"
+if "LOG" in name or "AUDIT" in name: type = "audit"
+```
+
+**6. PostgreSQL Caching**
+```sql
+-- Cache storage schema
+table_knowledge (
+  id SERIAL PRIMARY KEY,
+  db_name VARCHAR(100),
+  owner VARCHAR(100),
+  table_name VARCHAR(100),
+  oracle_comment TEXT,
+  num_rows BIGINT,
+  columns JSONB,
+  primary_key_columns TEXT[],
+  inferred_entity_type VARCHAR(100),
+  inferred_domain VARCHAR(100),
+  last_refreshed TIMESTAMP DEFAULT NOW(),
+  UNIQUE(db_name, owner, table_name)
+)
+
+relationship_knowledge (
+  id SERIAL PRIMARY KEY,
+  db_name VARCHAR(100),
+  from_schema VARCHAR(100),
+  from_table VARCHAR(100),
+  from_columns TEXT[],
+  to_schema VARCHAR(100),
+  to_table VARCHAR(100),
+  to_columns TEXT[],
+  constraint_name VARCHAR(200),
+  relationship_type VARCHAR(10),
+  last_refreshed TIMESTAMP DEFAULT NOW()
+)
+```
+
+**7. Cache Lookup Flow**
+```
+1. Generate cache key: (db_name, schema, table_name)
+2. Query PostgreSQL: SELECT * FROM table_knowledge WHERE db_name = ? AND owner = ? AND table_name = ?
+3. Check freshness: last_refreshed > NOW() - INTERVAL '7 days'
+4. If fresh: Return cached data
+5. If stale/missing: Query Oracle + Update cache
+```
+
+---
+
+#### ⚙️ Configuration
+
+**PostgreSQL Connection** (Required for caching)
+
+Add to `.env` file:
+```bash
+KNOWLEDGE_DB_HOST=host.docker.internal
+KNOWLEDGE_DB_PORT=5433
+KNOWLEDGE_DB_NAME=omni
+KNOWLEDGE_DB_USER=postgres
+KNOWLEDGE_DB_PASSWORD=postgres
+```
+
+Add to `docker-compose.yml`:
+```yaml
+services:
+  oracle_performance_mcp:
+    environment:
+      KNOWLEDGE_DB_HOST: ${KNOWLEDGE_DB_HOST:-host.docker.internal}
+      KNOWLEDGE_DB_PORT: ${KNOWLEDGE_DB_PORT:-5433}
+      KNOWLEDGE_DB_NAME: ${KNOWLEDGE_DB_NAME:-omni}
+      KNOWLEDGE_DB_USER: ${KNOWLEDGE_DB_USER:-postgres}
+      KNOWLEDGE_DB_PASSWORD: ${KNOWLEDGE_DB_PASSWORD:-postgres}
+```
+
+**Database Schema Setup** (One-time)
+
+Run the migration to create PostgreSQL tables:
+```bash
+# From omni2 directory (where PostgreSQL runs)
+cd omni2
+docker-compose exec -T postgres psql -U postgres -d omni < ../server/migrations/001_knowledge_base.sql
+```
+
+This creates 6 tables:
+- `table_knowledge` - Table metadata cache
+- `relationship_knowledge` - Foreign key relationships
+- `query_explanation_cache` - Full query analysis cache
+- `domain_glossary` - Business term definitions
+- `user_table_documentation` - Admin-provided docs
+- `knowledge_refresh_log` - Cache refresh history
+
+**Cache TTL Settings** (Optional)
+
+Default TTL values in `server/knowledge_db.py`:
+```python
+TABLE_CACHE_TTL_DAYS = 7        # Table metadata freshness
+RELATIONSHIP_CACHE_TTL_DAYS = 7  # FK relationships freshness
+QUERY_CACHE_TTL_DAYS = 30        # Full query analysis freshness
+```
+
+---
+
+#### 📊 Storage Architecture
+
+**Storage Flow:**
+```
+Oracle DB (Source)
+    ↓ First Query
+    ↓ Metadata Collection
+    ↓
+PostgreSQL (Cache)
+    ↓ 7-day TTL
+    ↓ Subsequent Queries
+    ↓
+MCP Response (JSON)
+```
+
+**Database Separation:**
+- **Oracle**: Source of truth for table/column metadata
+- **PostgreSQL**: Fast cache layer (shared with omni2 project)
+- **SQLite**: Query history tracking (separate concern)
+
+**Why PostgreSQL for Cache?**
+- ✅ JSONB support for flexible column storage
+- ✅ Array types for multi-column keys
+- ✅ Timestamp precision for TTL management
+- ✅ Shared infrastructure with omni2 project
+- ✅ No impact on Oracle performance
+
+**Cache Size Estimates:**
+- Table metadata: ~5KB per table
+- Relationships: ~500 bytes per FK
+- 100 tables with 20 relationships: ~520KB total
+- Negligible storage footprint
+
+---
+
+#### 📝 TODO - Future Enhancements
+
+**High Priority:**
+- [ ] Add MySQL support for business logic analysis
+- [ ] Implement cache warming on server startup (pre-populate frequently used tables)
+- [ ] Add cache invalidation endpoint for admins
+- [ ] Improve entity inference with ML-based classification
+- [ ] Add support for views and materialized views
+
+**Medium Priority:**
+- [ ] Generate natural language summaries using LLM
+- [ ] Support composite foreign keys (currently simple FK only)
+- [ ] Add confidence scores to inferred semantics
+- [ ] Create admin UI for managing table documentation overrides
+- [ ] Add query pattern recognition (e.g., "This is a pagination query")
+- [ ] Support for detecting anti-patterns (N+1 queries, Cartesian joins)
+
+**Low Priority:**
+- [ ] Export ER diagrams to PNG/SVG
+- [ ] Add support for dbdocs.io schema documentation
+- [ ] Integrate with data lineage tools
+- [ ] Support for Oracle synonyms and database links
+- [ ] Add business glossary auto-population from table comments
+- [ ] Generate sample queries based on relationships
+
+**Performance Improvements:**
+- [ ] Batch cache lookups (query multiple tables in one DB round-trip)
+- [ ] Add Redis layer for sub-100ms response times
+- [ ] Implement partial cache updates (only refresh changed columns)
+- [ ] Add cache warming scheduler (background job)
+
+**Security & Compliance:**
+- [ ] Add audit logging for sensitive table access
+- [ ] Implement row-level security for cached data
+- [ ] Add PII detection in column names/comments
+- [ ] Support for masking sensitive column details
+
+---
+
 **Example Output:**
 ```
 📊 Business Logic Analysis

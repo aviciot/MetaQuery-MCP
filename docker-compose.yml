@@ -7,6 +7,7 @@ services:
       dockerfile: Dockerfile
     container_name: oracle_performance_mcp
 
+    # Direct port access + Traefik routing (both available)
     ports:
       - "${MCP_PORT:-8300}:${MCP_PORT:-8300}"
 
@@ -29,3 +30,30 @@ services:
       KNOWLEDGE_DB_PASSWORD: ${KNOWLEDGE_DB_PASSWORD:-postgres}
 
     restart: unless-stopped
+
+    # ============================================================
+    # TRAEFIK GATEWAY INTEGRATION
+    # ============================================================
+    # Connects to external mcp-gateway-net for load balancing
+    networks:
+      - mcp-gateway-net
+
+    # Traefik auto-discovery labels
+    # - Routes requests from /database-mcp/* to this container
+    # - Strips /database-mcp prefix before forwarding
+    # - Enables load balancing across multiple replicas
+    labels:
+      - "traefik.enable=true"
+      # Router: match path prefix /database-mcp
+      - "traefik.http.routers.database-mcp.rule=PathPrefix(`/database-mcp`)"
+      - "traefik.http.routers.database-mcp.entrypoints=web"
+      # Strip prefix before forwarding to service
+      - "traefik.http.routers.database-mcp.middlewares=database-mcp-strip"
+      - "traefik.http.middlewares.database-mcp-strip.stripprefix.prefixes=/database-mcp"
+      # Service: internal port 8300
+      - "traefik.http.services.database-mcp.loadbalancer.server.port=8300"
+
+# Use external mcp-gateway-net (created by mcp-gateway docker-compose)
+networks:
+  mcp-gateway-net:
+    external: true

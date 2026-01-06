@@ -22,6 +22,39 @@ Future database engines (PostgreSQL, Snowflake, SQL Server) can be added easily 
 
 ---
 
+## 🌐 Connection Methods
+
+This MCP supports **dual connection modes**:
+
+| Method | URL | Use Case |
+|--------|-----|----------|
+| **Direct** | `http://localhost:8300/mcp` | Development, debugging |
+| **Via Traefik** | `http://localhost/database-mcp/mcp` | Production, load balanced |
+
+### Traefik Integration
+
+The MCP integrates with **Traefik v3.6 Gateway** for:
+- ✅ **Load Balancing** - Distribute requests across replicas
+- ✅ **Auto-Discovery** - Traefik detects containers via Docker labels
+- ✅ **Health Checks** - Automatic failover on failures
+- ✅ **Path Routing** - Access via `/database-mcp/*` prefix
+
+**Requirements:**
+- Traefik gateway running (see `mcp-gateway/` folder)
+- Container connected to `mcp-gateway-net` network
+
+**Docker Compose Labels:**
+```yaml
+labels:
+  - "traefik.enable=true"
+  - "traefik.http.routers.database-mcp.rule=PathPrefix(`/database-mcp`)"
+  - "traefik.http.routers.database-mcp.entrypoints=web"
+  - "traefik.http.middlewares.database-mcp-strip.stripprefix.prefixes=/database-mcp"
+  - "traefik.http.services.database-mcp.loadbalancer.server.port=8300"
+```
+
+---
+
 ## 🗄️ Supported Databases
 
 ### Oracle Database

@@ -1,0 +1,62 @@
+version: '3.8'
+
+services:
+  # Admin Dashboard Backend API
+  # Uses existing omni2-postgres database from Omni2 stack
+  admin-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: omni2-admin-api
+    ports:
+      - "8500:8000"
+    environment:
+      # Connect to existing Omni2 PostgreSQL database
+      - DATABASE_URL=postgresql://postgres:postgres@omni2-postgres:5432/omni
+      - JWT_SECRET=your-super-secret-key-change-this-in-production
+      - JWT_ALGORITHM=HS256
+      - JWT_EXPIRY_MINUTES=15
+      - CORS_ORIGINS=http://localhost:3000,http://localhost:3001
+      - OMNI2_API_URL=http://omni2-bridge:8000
+      - ENVIRONMENT=development
+    networks:
+      - omni2-network
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  # Admin Dashboard Frontend (Next.js 14)
+  admin-web:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    container_name: omni2-admin-web
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8500
+      - NODE_ENV=development
+    networks:
+      - omni2-network
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    depends_on:
+      - admin-api
+    restart: unless-stopped
+  #   restart: unless-stopped
+
+# Use existing omni2-network from Omni2 stack
+# To connect: docker network connect omni2-network omni2-admin-api
+networks:
+  omni2-network:
+    external: true
+    name: omni2_omni2-network
